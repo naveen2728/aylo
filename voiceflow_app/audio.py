@@ -1,6 +1,7 @@
 from collections import deque
 import math
 import os
+import time
 
 import sounddevice as sd
 
@@ -68,6 +69,8 @@ def open_input_stream(state, log_error=None):
         if status:
             state.last_audio_warning = str(status)
         chunk = indata.copy()
+        state.last_audio_callback_at = time.monotonic()
+        state.last_audio_rms = float(math.sqrt(float((chunk * chunk).mean()))) if chunk.size else 0.0
         with state.lock:
             if state.recording_state == STATE_RECORDING:
                 state.audio_frames.append(chunk)

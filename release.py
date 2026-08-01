@@ -12,12 +12,13 @@ import sys
 import zipfile
 
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 ROOT = Path(__file__).resolve().parent
 DIST_EXE = ROOT / "dist" / "VoiceFlow.exe"
 RELEASE_ROOT = ROOT / "release"
 PORTABLE_DIR = RELEASE_ROOT / f"VoiceFlow-{VERSION}"
 PORTABLE_EXE = PORTABLE_DIR / "VoiceFlow.exe"
+STANDALONE_EXE = RELEASE_ROOT / f"VoiceFlow-{VERSION}.exe"
 PORTABLE_ZIP = RELEASE_ROOT / f"VoiceFlow-{VERSION}-portable.zip"
 CHECKSUMS_FILE = RELEASE_ROOT / f"VoiceFlow-{VERSION}-SHA256SUMS.txt"
 INNO_SCRIPT = ROOT / "installer" / "VoiceFlow.iss"
@@ -80,11 +81,12 @@ def create_portable_release():
     RELEASE_ROOT.mkdir(exist_ok=True)
     PORTABLE_DIR.mkdir(exist_ok=True)
     shutil.copy2(DIST_EXE, PORTABLE_EXE)
+    shutil.copy2(DIST_EXE, STANDALONE_EXE)
     shutil.copy2(FRIEND_GUIDE, PORTABLE_GUIDE)
     with zipfile.ZipFile(PORTABLE_ZIP, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.write(PORTABLE_EXE, arcname="VoiceFlow.exe")
         archive.write(PORTABLE_GUIDE, arcname="VoiceFlow Quick Start.txt")
-    return [PORTABLE_EXE, PORTABLE_ZIP]
+    return [STANDALONE_EXE, PORTABLE_ZIP]
 
 
 def build_installer():

@@ -15,6 +15,8 @@ import glob
 import subprocess
 import importlib.util
 
+VERSION = "3.1.0"
+
 # =========================
 # PATHS
 # =========================
@@ -139,10 +141,10 @@ print()
 
 print("Step 4: Creating version info...")
 
-version_txt = """VSVersionInfo(
+version_txt = f"""VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(3, 0, 0, 0),
-    prodvers=(3, 0, 0, 0),
+    filevers=(3, 1, 0, 0),
+    prodvers=(3, 1, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -156,12 +158,12 @@ version_txt = """VSVersionInfo(
         u'040904B0',
         [StringStruct(u'CompanyName', u'VoiceFlow'),
          StringStruct(u'FileDescription', u'VoiceFlow - AI Voice to Text'),
-         StringStruct(u'FileVersion', u'3.0.0'),
+         StringStruct(u'FileVersion', u'{VERSION}'),
          StringStruct(u'InternalName', u'VoiceFlow'),
          StringStruct(u'LegalCopyright', u'VoiceFlow'),
          StringStruct(u'OriginalFilename', u'VoiceFlow.exe'),
          StringStruct(u'ProductName', u'VoiceFlow'),
-         StringStruct(u'ProductVersion', u'3.0.0')])
+         StringStruct(u'ProductVersion', u'{VERSION}')])
       ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
   ]
@@ -171,6 +173,11 @@ version_file = os.path.join(SCRIPT_DIR, "version.txt")
 with open(version_file, "w") as f:
     f.write(version_txt)
 print(f"Version file: {version_file}\n")
+
+manifest_file = os.path.join(SCRIPT_DIR, "voiceflow.manifest")
+if not os.path.exists(manifest_file):
+    print(f"ERROR: Missing Windows DPI manifest: {manifest_file}")
+    sys.exit(1)
 
 # =========================
 # STEP 5 - Build PyInstaller command
@@ -194,6 +201,7 @@ cmd = [
     "--windowed",               # no console window shown to end users
     "--name", "VoiceFlow",
     "--version-file", version_file,
+    "--manifest", manifest_file,
     "--clean",                  # clean PyInstaller cache before building
     "--collect-data", "faster_whisper",
 ]
@@ -217,6 +225,7 @@ hidden = [
     "pywintypes",
     "pythoncom",
     "win32cred",
+    "win32timezone",
     "psutil",
     "groq",
     "faster_whisper",
@@ -262,11 +271,11 @@ if result.returncode == 0:
     print("\nWhat to tell users:")
     print("  - Double-click VoiceFlow.exe to start")
     print("  - First launch asks for a free Groq API key")
-    print("  - Hold Ctrl+Space to record, release to paste")
+    print("  - Hold Right Shift to record dictation, release to paste")
     print("  - Optional: enable mouse side buttons in Settings")
     print("    Back records dictation; Forward records an AI command")
     print("    VoiceFlow blocks the native browser Back/Forward mouse action")
-    print("  - Hold Ctrl+Shift+Space for AI commands")
+    print("  - Hold Ctrl+Space for AI commands")
     print("  - Right-click the orb for Settings, Diagnostics, Setup, Reconnect AI, or Quit")
     print("  - Hotkeys don't work when an Admin app is focused")
     print("\nWindows SmartScreen warning:")

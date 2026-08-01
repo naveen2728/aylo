@@ -4,19 +4,20 @@ from tkinter import ttk
 
 
 SENSITIVITY_OPTIONS = {
-    "High - quieter speech": 0.0000001,
-    "Normal": 0.000001,
-    "Low - noisy rooms": 0.0002,
+    "High - quieter speech": 0.0002,
+    "Normal": 0.0008,
+    "Low - noisy rooms": 0.002,
 }
 def sensitivity_label(threshold):
     return min(SENSITIVITY_OPTIONS, key=lambda label: abs(SENSITIVITY_OPTIONS[label] - threshold))
 
 
 class SettingsWindow:
-    def __init__(self, parent, settings, input_devices, save_callback):
+    def __init__(self, parent, settings, input_devices, save_callback, ai_key_configured=False, change_api_key_callback=None):
         self.settings = settings
         self.input_devices = input_devices
         self.save_callback = save_callback
+        self.change_api_key_callback = change_api_key_callback
         self.device_by_label = {device["label"]: device["id"] for device in input_devices}
 
         self.window = tk.Toplevel(parent)
@@ -43,6 +44,30 @@ class SettingsWindow:
         self.duration_select = ttk.Combobox(body, textvariable=self.duration_var, values=["15", "30", "45", "60"], width=44, state="readonly")
         self.duration_select.grid(row=5, column=0, columnspan=2, pady=(4, 16), sticky="ew")
 
+        self.ai_features_var = tk.BooleanVar(value=settings.ai_features_enabled)
+        ai_frame = tk.LabelFrame(body, text="AI Features", bg="#1a1a1a", fg="#ffffff", padx=10, pady=8)
+        ai_frame.grid(row=6, column=0, columnspan=2, pady=(0, 14), sticky="ew")
+        tk.Checkbutton(
+            ai_frame,
+            text="Enable AI features",
+            variable=self.ai_features_var,
+            bg="#1a1a1a",
+            fg="#ffffff",
+            activebackground="#1a1a1a",
+            activeforeground="#ffffff",
+            selectcolor="#111111",
+            anchor="w",
+        ).pack(anchor="w")
+        tk.Label(
+            ai_frame,
+            text="Off keeps VoiceFlow fully offline. On enables Ctrl + Space AI commands. Right Shift dictation always stays local.",
+            bg="#1a1a1a", fg="#a3a3a3", wraplength=410, justify="left",
+        ).pack(anchor="w", pady=(4, 7))
+        status = "AI key: connected" if ai_key_configured else "AI key: not added"
+        tk.Label(ai_frame, text=status, bg="#1a1a1a", fg="#86efac" if ai_key_configured else "#facc15").pack(side="left")
+        if self.change_api_key_callback:
+            tk.Button(ai_frame, text="Add / Update API Key", command=self.change_api_key_callback, bg="#333333", fg="#dddddd", relief="flat", padx=10, pady=5).pack(side="right")
+
         self.mouse_side_button_var = tk.BooleanVar(value=settings.mouse_side_button_mic)
         tk.Checkbutton(
             body,
@@ -54,10 +79,18 @@ class SettingsWindow:
             activeforeground="#ffffff",
             selectcolor="#111111",
             anchor="w",
-        ).grid(row=6, column=0, columnspan=2, pady=(0, 20), sticky="w")
+        ).grid(row=7, column=0, columnspan=2, pady=(0, 12), sticky="w")
 
-        tk.Button(body, text="Cancel", command=self.window.destroy, bg="#333333", fg="#dddddd", relief="flat", padx=12).grid(row=7, column=0, sticky="e", padx=(0, 6))
-        tk.Button(body, text="Save", command=self._save, bg="#2563eb", fg="#ffffff", relief="flat", padx=12).grid(row=7, column=1, sticky="w")
+        instructions = (
+            "How to use: Hold Right Shift to dictate. Hold Ctrl + Space for an AI command when AI Features is on. "
+            "Mouse Back dictates; Mouse Forward runs an AI command."
+        )
+        tk.Label(body, text=instructions, bg="#1a1a1a", fg="#a3a3a3", wraplength=430, justify="left").grid(
+            row=8, column=0, columnspan=2, pady=(0, 14), sticky="w"
+        )
+
+        tk.Button(body, text="Cancel", command=self.window.destroy, bg="#333333", fg="#dddddd", relief="flat", padx=12).grid(row=9, column=0, sticky="e", padx=(0, 6))
+        tk.Button(body, text="Save", command=self._save, bg="#2563eb", fg="#ffffff", relief="flat", padx=12).grid(row=9, column=1, sticky="w")
 
         self.window.transient(parent)
         self.window.grab_set()
@@ -76,6 +109,7 @@ class SettingsWindow:
                 max_record_seconds=int(self.duration_var.get()),
                 mouse_side_button_mic=self.mouse_side_button_var.get(),
                 mouse_forward_action="command",
+                ai_features_enabled=self.ai_features_var.get(),
             )
         except Exception as exc:
             messagebox.showerror("VoiceFlow Settings", str(exc), parent=self.window)
@@ -143,6 +177,12 @@ class OnboardingWindow:
         self.window.resizable(False, False)
         self.window.attributes("-topmost", True)
         self.window.configure(bg="#111111")
+        width, height = 500, 380
+        x = (self.window.winfo_screenwidth() - width) // 2
+        y = (self.window.winfo_screenheight() - height) // 2
+        self.window.geometry(f"{width}x{height}+{x}+{y}")
+        self.window.minsize(width, height)
+        self.window.maxsize(width, height)
 
         body = tk.Frame(self.window, bg="#111111", padx=18, pady=18)
         body.pack(fill="both", expand=True)

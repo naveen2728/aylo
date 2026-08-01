@@ -1,15 +1,18 @@
 import unittest
 from unittest.mock import Mock, call, patch
 
-from voiceflow_app.app import VoiceFlowApp
+from voiceflow_app.app import VoiceFlowApp, enable_dpi_awareness
 from voiceflow_app.ai_client import GenerationError
 from voiceflow_app.config import AppSettings
 from voiceflow_app.state import STATE_IDLE, STATE_RECORDING
 
 
 class AppCommandTests(unittest.TestCase):
+    def test_enable_dpi_awareness_is_safe_to_call(self):
+        enable_dpi_awareness()
+
     def make_app(self):
-        with patch("voiceflow_app.app.load_settings", return_value=AppSettings()), patch("voiceflow_app.app.HistoryStore"):
+        with patch("voiceflow_app.app.load_settings", return_value=AppSettings(ai_features_enabled=True)), patch("voiceflow_app.app.HistoryStore"):
             app = VoiceFlowApp()
         app.state.client = object()
         app.state.clipboard_snapshot = "def old():\n    return 1"
@@ -18,6 +21,13 @@ class AppCommandTests(unittest.TestCase):
         app._record_history = Mock()
         app._transcribe = Mock(return_value="Change it to return two")
         return app
+
+    def test_ai_command_is_blocked_when_ai_features_are_off(self):
+        app = self.make_app()
+        app.state.settings.ai_features_enabled = False
+        app._process_command([])
+        app._transcribe.assert_not_called()
+        app.show_toast.assert_called_once_with("AI Features are off. Enable them in Settings.")
 
     def test_shift_command_uses_clipboard_for_natural_it_reference(self):
         app = self.make_app()
@@ -76,6 +86,15 @@ class AppCommandTests(unittest.TestCase):
         app.open_web_shortcut.assert_called_once_with("https://www.youtube.com/")
         cleanup.assert_not_called()
         copy.assert_not_called()
+
+    def test_dictation_never_uses_ai_cleanup(self):
+        app = self.make_app()
+        app._transcribe = Mock(return_value="plain local dictation")
+        app._paste_text_preserving_clipboard = Mock()
+        with patch("voiceflow_app.app.ai_client.cleanup") as cleanup:
+            app._process_dictation([], "prompt")
+        cleanup.assert_not_called()
+        app._paste_text_preserving_clipboard.assert_called_once_with("plain local dictation", release_keys=("shift",))
 
     def test_voice_chat_speaks_ai_response_without_pasting(self):
         app = self.make_app()

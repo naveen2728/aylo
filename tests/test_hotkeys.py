@@ -1,4 +1,5 @@
 import unittest
+import time
 from unittest.mock import patch
 
 from pynput import keyboard as kb
@@ -29,8 +30,9 @@ class HotkeyTests(unittest.TestCase):
         def stop_and_process():
             self.stop_calls += 1
 
-        def cancel_recording():
+        def cancel_recording(silent=False):
             self.cancel_calls += 1
+            self.state.recording_state = "idle"
 
         def close_app():
             self.close_calls += 1
@@ -62,43 +64,48 @@ class HotkeyTests(unittest.TestCase):
                 log_error,
             )
 
-    def test_shift_alone_does_not_start_command(self):
-        self.listener.on_press(kb.Key.shift)
-        self.listener.on_release(kb.Key.shift)
+    def test_left_shift_alone_does_not_start_dictation(self):
+        self.listener.on_press(kb.Key.shift_l)
+        self.listener.on_release(kb.Key.shift_l)
         self.assertEqual(self.started_modes, [])
 
-    def test_ctrl_shift_space_starts_command(self):
+    def test_right_shift_starts_dictation(self):
+        with patch("voiceflow_app.hotkeys.time.monotonic", return_value=10.0):
+            self.listener.on_press(kb.Key.shift_r)
+            time.sleep(0.22)
+        self.assertEqual(self.started_modes, ["dictation"])
+
+    def test_ctrl_space_starts_command(self):
         with patch("voiceflow_app.hotkeys.time.monotonic", return_value=10.0):
             self.listener.on_press(kb.Key.ctrl)
-            self.listener.on_press(kb.Key.shift)
             self.listener.on_press(kb.Key.space)
         self.assertEqual(self.started_modes, ["command"])
 
-    def test_ctrl_space_starts_dictation(self):
+    def test_ctrl_shift_space_still_starts_command(self):
         with patch("voiceflow_app.hotkeys.time.monotonic", return_value=10.0):
             self.listener.on_press(kb.Key.ctrl)
+            self.listener.on_press(kb.Key.shift_l)
             self.listener.on_press(kb.Key.space)
-        self.assertEqual(self.started_modes, ["dictation"])
+        self.assertEqual(self.started_modes, ["command"])
 
     def test_key_repeat_does_not_trigger_twice(self):
         with patch("voiceflow_app.hotkeys.time.monotonic", return_value=10.0):
             self.listener.on_press(kb.Key.ctrl)
             self.listener.on_press(kb.Key.space)
             self.listener.on_press(kb.Key.space)
-        self.assertEqual(self.started_modes, ["dictation"])
+        self.assertEqual(self.started_modes, ["command"])
 
     def test_release_stops_dictation(self):
-        self.listener.on_press(kb.Key.ctrl)
-        self.listener.on_press(kb.Key.space)
-        self.listener.on_release(kb.Key.space)
+        self.listener.on_press(kb.Key.shift_r)
+        time.sleep(0.22)
+        self.listener.on_release(kb.Key.shift_r)
         self.assertEqual(self.started_modes, ["dictation"])
         self.assertEqual(self.stop_calls, 1)
 
-    def test_command_chord_stops_when_shift_is_released_first(self):
+    def test_command_chord_stops_when_space_is_released_first(self):
         self.listener.on_press(kb.Key.ctrl)
-        self.listener.on_press(kb.Key.shift)
         self.listener.on_press(kb.Key.space)
-        self.listener.on_release(kb.Key.shift)
+        self.listener.on_release(kb.Key.space)
         self.assertEqual(self.started_modes, ["command"])
         self.assertEqual(self.stop_calls, 1)
 
@@ -135,6 +142,7 @@ class HotkeyTests(unittest.TestCase):
         self.assertEqual(self.close_calls, 0)
 
     def test_mouse_listener_does_not_start_when_setting_disabled(self):
+        self.state.settings.mouse_side_button_mic = False
         with patch("voiceflow_app.hotkeys.MouseSideButtonHook") as mouse_listener:
             self.listener.refresh_mouse_listener()
         mouse_listener.assert_not_called()
@@ -143,10 +151,47 @@ class HotkeyTests(unittest.TestCase):
         self.state.settings.mouse_side_button_mic = True
         with patch("voiceflow_app.hotkeys.MouseSideButtonHook") as mouse_listener:
             self.listener.refresh_mouse_listener()
-        mouse_listener.assert_called_once_with(self.listener.handle_mouse_button_event, self.listener.log_error)
+        mouse_listener.assert_called_once_with(
+            self.listener.handle_mouse_button_event,
+            self.listener.log_error,
+            self.listener.handle_native_hotkey_event,
+        )
         mouse_listener.return_value.start.assert_called_once()
 
+    def test_native_ctrl_space_starts_and_releases_command(self):
+        self.listener.handle_native_hotkey_event(0xA2, True)
+        self.listener.handle_native_hotkey_event(0x20, True)
+        self.assertEqual(self.started_modes, ["command"])
+
+        self.listener.handle_native_hotkey_event(0x20, False)
+        self.assertEqual(self.stop_calls, 1)
+
+    def test_native_right_shift_starts_and_releases_dictation(self):
+        self.listener.handle_native_hotkey_event(0xA1, True)
+        time.sleep(0.22)
+        self.assertEqual(self.started_modes, ["dictation"])
+
+        self.listener.handle_native_hotkey_event(0xA1, False)
+        self.assertEqual(self.stop_calls, 1)
+
+    def test_right_shift_used_with_another_key_does_not_start_dictation(self):
+        self.listener.on_press(kb.Key.shift_r)
+        self.listener.on_press(kb.KeyCode.from_char("a"))
+        time.sleep(0.22)
+        self.listener.on_release(kb.Key.shift_r)
+        self.assertEqual(self.started_modes, [])
+
+    def test_right_shift_recording_is_cancelled_when_another_key_is_pressed(self):
+        self.listener.on_press(kb.Key.shift_r)
+        time.sleep(0.22)
+        self.assertEqual(self.started_modes, ["dictation"])
+
+        self.listener.on_press(kb.KeyCode.from_char("a"))
+        self.assertEqual(self.cancel_calls, 1)
+        self.assertEqual(self.stop_calls, 0)
+
     def test_mouse_button_ignored_when_setting_disabled(self):
+        self.state.settings.mouse_side_button_mic = False
         handled = self.listener.handle_mouse_button_event(ms.Button.x2, True)
         self.assertFalse(handled)
         self.assertEqual(self.started_modes, [])

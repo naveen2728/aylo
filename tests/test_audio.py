@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 
+import numpy as np
+
 from voiceflow_app.audio import list_input_devices, open_input_stream, resolve_input_device
 from voiceflow_app.config import AppSettings
 from voiceflow_app.state import RuntimeState
@@ -53,6 +55,21 @@ class AudioTests(unittest.TestCase):
         self.assertEqual(kwargs["blocksize"], 960)
         self.assertEqual(state.input_samplerate, 48000)
         stream.start.assert_called_once_with()
+
+    def test_audio_callback_tracks_freshness_and_signal_level(self):
+        state = RuntimeState(AppSettings())
+        stream = unittest.mock.Mock()
+        with patch("voiceflow_app.audio._wasapi_default_input_device", return_value=10), patch(
+            "voiceflow_app.audio.sd.check_input_settings"
+        ), patch("voiceflow_app.audio.sd.InputStream", return_value=stream) as input_stream, patch(
+            "voiceflow_app.audio.time.monotonic", return_value=123.0
+        ):
+            open_input_stream(state)
+            callback = input_stream.call_args.kwargs["callback"]
+            callback(np.full((320, 1), 0.25, dtype=np.float32), 320, None, None)
+        self.assertEqual(state.last_audio_callback_at, 123.0)
+        self.assertAlmostEqual(state.last_audio_rms, 0.25, places=5)
+        self.assertEqual(len(state.pre_buffer), 1)
 
 
 if __name__ == "__main__":

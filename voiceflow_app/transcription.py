@@ -5,7 +5,12 @@ from .config import model_location
 
 
 class AudioQualityError(ValueError):
-    pass
+    def __init__(self, message, reason="audio_quality", *, rms=None, peak=None, seconds=None):
+        super().__init__(message)
+        self.reason = reason
+        self.rms = rms
+        self.peak = peak
+        self.seconds = seconds
 
 
 def load_model(set_status, log_error):
@@ -33,17 +38,37 @@ def load_model(set_status, log_error):
     raise RuntimeError("Could not load speech model. CPU may be too old.")
 
 
-def transcribe_frames(model, frames, samplerate, min_record_seconds=0.3, silence_rms_threshold=0.000001):
+def transcribe_frames(model, frames, samplerate, min_record_seconds=0.3, silence_rms_threshold=0.0008):
     import numpy as np
 
     if not frames:
-        raise AudioQualityError("No audio captured. Check your microphone and try again.")
+        raise AudioQualityError("No audio captured. VoiceFlow will refresh the microphone automatically.", "no_signal")
     audio = np.concatenate(frames, axis=0).flatten().astype(np.float32)
-    if len(audio) / samplerate < min_record_seconds:
-        raise AudioQualityError("Recording was too short. Hold the shortcut while speaking.")
+    duration_seconds = len(audio) / samplerate
+    if duration_seconds < min_record_seconds:
+        raise AudioQualityError(
+            "Recording was too short. Hold the shortcut while speaking.",
+            "too_short",
+            seconds=duration_seconds,
+        )
     max_value = float(np.max(np.abs(audio)))
     if max_value == 0:
-        raise AudioQualityError("No speech detected. Check your microphone and try again.")
+        raise AudioQualityError(
+            "No microphone signal detected. VoiceFlow will refresh the microphone; retry once.",
+            "no_signal",
+            rms=0.0,
+            peak=0.0,
+            seconds=duration_seconds,
+        )
+    rms = float(np.sqrt(np.mean(np.square(audio))))
+    if rms < silence_rms_threshold:
+        raise AudioQualityError(
+            "No clear voice detected. Hold the shortcut and speak normally.",
+            "silence",
+            rms=rms,
+            peak=max_value,
+            seconds=duration_seconds,
+        )
     if samplerate != 16000:
         from scipy.signal import resample_poly
 
@@ -52,11 +77,14 @@ def transcribe_frames(model, frames, samplerate, min_record_seconds=0.3, silence
     audio = audio / max_value
     options = {
         "language": "en",
-        "beam_size": 2,
+        # A wider search makes the bundled offline Whisper model more accurate
+        # for short commands and varied accents. VoiceFlow records on demand,
+        # so the small extra processing time is preferable to a wrong paste.
+        "beam_size": 5,
         "condition_on_previous_text": False,
         "without_timestamps": True,
         "vad_filter": True,
-        "vad_parameters": {"min_silence_duration_ms": 250, "speech_pad_ms": 120},
+        "vad_parameters": {"min_silence_duration_ms": 300, "speech_pad_ms": 200},
     }
     try:
         text = _run_transcription(model, audio, options)
@@ -68,9 +96,18 @@ def transcribe_frames(model, frames, samplerate, min_record_seconds=0.3, silence
     if not text:
         options["vad_filter"] = False
         options.pop("vad_parameters", None)
+        # VAD can reject short phrases or quiet speech.  Give the decoder a
+        # more thorough second pass before asking the user to retry.
+        options["beam_size"] = 5
         text = _run_transcription(model, audio, options)
     if not text:
-        raise AudioQualityError("No speech detected. Speak closer to the microphone and try again.")
+        raise AudioQualityError(
+            "Speech was not recognized. Retry once, speak for at least one second, or choose another microphone in Settings.",
+            "not_recognized",
+            rms=rms,
+            peak=max_value,
+            seconds=duration_seconds,
+        )
     return text
 
 

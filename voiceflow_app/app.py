@@ -22,6 +22,9 @@ from .config import (
     save_openai_realtime_api_key,
     save_settings,
 )
+from .conversation_agent import ConversationAgent, ConversationAgentError
+from .conversation_window import ConversationWindow
+from .free_conversation_agent import FreeConversationAgent
 from .context import get_active_window_title
 from .gmail_assistant import answer_gmail_question, generate_gmail_reply, is_gmail_question, is_open_gmail_command, search_gmail
 from .gmail_connector import connect_gmail, create_gmail_draft, disconnect_gmail, gmail_status, send_gmail_message, sender_email, sync_gmail_knowledge
@@ -45,6 +48,26 @@ from .web_shortcuts import detect_open_shortcut
 
 VOICE_CHAT_TURN_SECONDS = 4.0
 VOICE_CHAT_POLL_SECONDS = 0.1
+MINIMUM_CAPTURE_SECONDS = 0.9
+
+
+def enable_dpi_awareness():
+    """Use physical-pixel window geometry on high-DPI displays."""
+    try:
+        context = ctypes.c_void_p(-4)  # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+        if ctypes.windll.user32.SetProcessDpiAwarenessContext(context):
+            return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        return
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
 
 
 class VoiceFlowApp:
@@ -58,12 +81,17 @@ class VoiceFlowApp:
         self.voice_chat_active = False
         self.voice_chat_stop_event = threading.Event()
         self.realtime_voice_agent = None
+        self.conversation_agent = None
+        self.conversation_window = None
+        self.microphone_refresh_lock = threading.Lock()
 
     def run(self):
+        enable_dpi_awareness()
         self._acquire_single_instance()
         load_api_key()
         load_image_api_key()
-        prompt_for_api_key_if_needed(save_api_key)
+        if self.state.settings.ai_features_enabled:
+            prompt_for_api_key_if_needed(self._verify_and_save_initial_api_key)
         self._load_services()
         self.overlay = Overlay(
             self.state,
@@ -99,6 +127,7 @@ class VoiceFlowApp:
             self.start_voice_chat,
             self.stop_voice_chat,
             self.is_voice_chat_active,
+            self.open_conversation,
         )
         if not self.state.settings.first_run_complete:
             self.overlay.root.after(700, self.open_onboarding)
@@ -115,6 +144,18 @@ class VoiceFlowApp:
         )
         self.hotkeys.start()
         self.overlay.run()
+
+    def _verify_and_save_initial_api_key(self, key):
+        if not key.startswith("gsk_"):
+            raise ValueError("This does not look like a Groq API key. Copy a key beginning with gsk_.")
+        try:
+            client = ai_client.connect(api_key=key)
+        except Exception as exc:
+            self.log_error("First-run Groq connection failed", exc)
+            raise ValueError(ai_client.friendly_generation_error(exc)) from exc
+        save_api_key(key)
+        self.state.client = client
+        self.state.ai_cleanup = True
 
     def _acquire_single_instance(self):
         self.mutex = ctypes.windll.kernel32.CreateMutexW(None, False, r"Local\VoiceFlow_SingleInstance")
@@ -145,7 +186,7 @@ class VoiceFlowApp:
             splash.set_status("Loading speech model...")
             self.state.model = load_model(splash.set_status, self.log_error)
 
-            if os.environ.get("GROQ_API_KEY"):
+            if os.environ.get("GROQ_API_KEY") and self.state.client is None:
                 splash.set_status("Connecting to Groq...")
                 try:
                     self.state.client = ai_client.connect()
@@ -171,8 +212,16 @@ class VoiceFlowApp:
         with self.state.lock:
             if self.state.recording_state != STATE_IDLE:
                 return
+        if not self._ensure_microphone_stream_live():
+            self.show_toast("Microphone connection failed. Check Settings and try again.")
+            return
+        with self.state.lock:
+            if self.state.recording_state != STATE_IDLE:
+                return
             self.state.recording_state = STATE_RECORDING
             self.state.audio_frames = list(self.state.pre_buffer)
+            self.state.recording_prebuffer_frames = len(self.state.audio_frames)
+            self.state.recording_started_at = time.monotonic()
             self.state.recording_mode = mode
             if mode == "command":
                 try:
@@ -193,34 +242,77 @@ class VoiceFlowApp:
                 return
         self.stop_and_process()
 
-    def cancel_recording(self):
+    def cancel_recording(self, silent=False):
         with self.state.lock:
             if self.state.recording_state != STATE_RECORDING:
                 return
             self.state.recording_state = STATE_IDLE
             self.state.audio_frames = []
+            self.state.recording_started_at = 0.0
+            self.state.recording_prebuffer_frames = 0
             if self.state.max_record_timer is not None:
                 self.state.max_record_timer.cancel()
                 self.state.max_record_timer = None
+            if self.state.minimum_record_timer is not None:
+                self.state.minimum_record_timer.cancel()
+                self.state.minimum_record_timer = None
         self.set_orb("idle")
-        self.show_toast("Recording cancelled.")
+        if not silent:
+            self.show_toast("Recording cancelled.")
 
     def stop_and_process(self):
         with self.state.lock:
             if self.state.recording_state != STATE_RECORDING:
                 return
+            recording_started_at = self.state.recording_started_at
+            held_seconds = max(0.0, time.monotonic() - recording_started_at) if recording_started_at else 0.0
+            if recording_started_at and held_seconds < MINIMUM_CAPTURE_SECONDS:
+                if self.state.minimum_record_timer is None:
+                    remaining = MINIMUM_CAPTURE_SECONDS - held_seconds
+                    timer = threading.Timer(remaining, self.stop_and_process)
+                    timer.daemon = True
+                    self.state.minimum_record_timer = timer
+                    timer.start()
+                    self.log_error(
+                        f"Recording release deferred for short phrase: captured={held_seconds:.2f}, "
+                        f"minimum={MINIMUM_CAPTURE_SECONDS:.2f}"
+                    )
+                return
             self.state.recording_state = STATE_PROCESSING
             frames = self.state.audio_frames.copy()
             self.state.audio_frames = []
+            prebuffer_frames = self.state.recording_prebuffer_frames
+            self.state.recording_started_at = 0.0
+            self.state.recording_prebuffer_frames = 0
+            self.state.minimum_record_timer = None
             if self.state.max_record_timer is not None:
                 self.state.max_record_timer.cancel()
                 self.state.max_record_timer = None
-        self.set_orb("idle")
-        self.log_error(f"Recording stopped: mode={self.state.recording_mode}, frames={len(frames)}")
+        held_seconds = max(0.0, time.monotonic() - recording_started_at) if recording_started_at else 0.0
+        self.log_error(
+            f"Recording stopped: mode={self.state.recording_mode}, frames={len(frames)}, "
+            f"prebuffer={prebuffer_frames}, held_seconds={held_seconds:.2f}"
+        )
+        if self._recording_stream_stalled(len(frames), prebuffer_frames, held_seconds):
+            self.log_error(
+                f"Microphone stream stalled during recording: frames={len(frames)}, "
+                f"prebuffer={prebuffer_frames}, held_seconds={held_seconds:.2f}"
+            )
+            recovered = self._refresh_microphone_stream("recording stream stalled")
+            if recovered:
+                self.show_toast("Microphone reconnected. Hold Right Shift and speak again.")
+            else:
+                self.show_toast("Microphone stopped responding. Choose a microphone in Settings.")
+            self._set_idle()
+            return
         if not frames:
             self.show_toast("No audio captured. Check your microphone and try again.")
             self._set_idle()
             return
+        # Keep the orb visibly active while local transcription or AI work is
+        # running. This transitions directly from the speaking animation to
+        # the thinking animation instead of briefly dropping back to idle.
+        self.set_orb("thinking")
         if self.state.recording_mode == "command":
             threading.Thread(target=self._process_command, args=(frames,), daemon=True).start()
         elif self.state.recording_mode == "voice_chat":
@@ -239,17 +331,11 @@ class VoiceFlowApp:
             if shortcut_url:
                 self.open_web_shortcut(shortcut_url)
                 return
-            if self.state.ai_cleanup or os.environ.get("GROQ_API_KEY"):
-                try:
-                    client = self._ensure_ai_client()
-                except Exception as exc:
-                    self.log_error("Groq reconnect failed", exc)
-                    client = None
-                if client:
-                    self.set_orb("cleaning")
-                    text = ai_client.cleanup(client, text, prompt, self.log_error)
+            # Dictation is intentionally local-only. AI is reserved for the
+            # dedicated command shortcut so spoken text is never unexpectedly
+            # rewritten or sent to a provider.
             self._record_history(text, mode="dictation")
-            self._paste_text_preserving_clipboard(text, release_keys=("ctrl", "space"))
+            self._paste_text_preserving_clipboard(text, release_keys=("shift",))
         except AudioQualityError as exc:
             self.show_toast(str(exc))
         except Exception as exc:
@@ -259,6 +345,9 @@ class VoiceFlowApp:
 
     def _process_command(self, frames):
         try:
+            if not self.state.settings.ai_features_enabled:
+                self.show_toast("AI Features are off. Enable them in Settings.")
+                return
             user_text = self._transcribe(frames)
             if not user_text:
                 return
@@ -331,6 +420,9 @@ class VoiceFlowApp:
             self._set_idle()
 
     def start_voice_chat(self):
+        if not self.state.settings.ai_features_enabled:
+            self.show_toast("AI Features are off. Enable them in Settings.")
+            return
         self.log_error("Realtime voice chat start requested")
         if self.voice_chat_active:
             self.show_toast("Voice chat is already running.")
@@ -380,6 +472,78 @@ class VoiceFlowApp:
 
     def is_voice_chat_active(self):
         return self.voice_chat_active
+
+    def open_conversation(self):
+        if self.voice_chat_active:
+            self.show_toast("Stop the legacy voice chat before opening Conversation.")
+            return
+        if self.conversation_window is None:
+            self.conversation_window = ConversationWindow(
+                self.overlay.root,
+                self._start_conversation_session,
+                self._stop_conversation_session,
+                self._set_conversation_muted,
+            )
+        self.conversation_window.open()
+
+    def _start_conversation_session(self, on_event):
+        if self.conversation_agent is not None:
+            return
+        api_key = load_openai_realtime_api_key()
+        if api_key:
+            self.conversation_agent = ConversationAgent(api_key, self.log_error, on_event)
+        else:
+            client = self._ensure_ai_client()
+            if client is None:
+                raise ConversationAgentError("Add your Groq API key from the orb menu first.")
+            self.conversation_agent = FreeConversationAgent(
+                self._record_free_conversation_turn,
+                self._transcribe,
+                lambda messages: ai_client.chat(client, messages, self.log_error),
+                speak_text,
+                self.log_error,
+                on_event,
+            )
+        try:
+            self.conversation_agent.start()
+        except Exception:
+            self.conversation_agent = None
+            raise
+
+    def _stop_conversation_session(self):
+        if self.conversation_agent:
+            self.conversation_agent.stop()
+            self.conversation_agent = None
+        with self.state.lock:
+            if self.state.recording_mode == "free_conversation":
+                self.state.recording_state = STATE_IDLE
+                self.state.audio_frames = []
+        self.set_orb("idle")
+
+    def _set_conversation_muted(self, muted):
+        if self.conversation_agent:
+            self.conversation_agent.set_muted(muted)
+
+    def _record_free_conversation_turn(self, stop_event, muted_event, seconds=VOICE_CHAT_TURN_SECONDS):
+        with self.state.lock:
+            if self.state.recording_state != STATE_IDLE:
+                return []
+            self.state.recording_state = STATE_RECORDING
+            self.state.recording_mode = "free_conversation"
+            self.state.audio_frames = []
+        self.set_orb("recording")
+        deadline = time.monotonic() + seconds
+        while not stop_event.is_set() and not muted_event.is_set() and time.monotonic() < deadline:
+            time.sleep(VOICE_CHAT_POLL_SECONDS)
+        with self.state.lock:
+            frames = self.state.audio_frames.copy()
+            self.state.audio_frames = []
+            if self.state.recording_mode == "free_conversation":
+                self.state.recording_state = STATE_IDLE
+        self.set_orb("idle")
+        if stop_event.is_set() or muted_event.is_set():
+            return []
+        return frames
 
     def _realtime_voice_status(self, message):
         if "disconnected" in message.lower() or "failed" in message.lower():
@@ -533,19 +697,106 @@ class VoiceFlowApp:
     def _set_idle(self):
         with self.state.lock:
             self.state.recording_state = STATE_IDLE
+            self.state.recording_started_at = 0.0
+            self.state.recording_prebuffer_frames = 0
         self.set_orb("idle")
 
     def _transcribe(self, frames):
         started = time.perf_counter()
-        text = transcribe_frames(
-            self.state.model,
-            frames,
-            self.state.input_samplerate,
-            min_record_seconds=self.state.settings.min_record_seconds,
-            silence_rms_threshold=self.state.settings.silence_rms_threshold,
-        )
+        try:
+            try:
+                text = transcribe_frames(
+                    self.state.model,
+                    frames,
+                    self.state.input_samplerate,
+                    min_record_seconds=self.state.settings.min_record_seconds,
+                    silence_rms_threshold=self.state.settings.silence_rms_threshold,
+                )
+            except AudioQualityError as exc:
+                adaptive_threshold = 0.0002
+                if exc.reason != "silence" or self.state.settings.silence_rms_threshold <= adaptive_threshold:
+                    raise
+                self.log_error(
+                    f"Retrying quiet recording with adaptive sensitivity: "
+                    f"configured={self.state.settings.silence_rms_threshold:.6f}, adaptive={adaptive_threshold:.6f}"
+                )
+                text = transcribe_frames(
+                    self.state.model,
+                    frames,
+                    self.state.input_samplerate,
+                    min_record_seconds=self.state.settings.min_record_seconds,
+                    silence_rms_threshold=adaptive_threshold,
+                )
+        except AudioQualityError as exc:
+            callback_age = (
+                max(0.0, time.monotonic() - self.state.last_audio_callback_at)
+                if self.state.last_audio_callback_at
+                else -1.0
+            )
+            self.log_error(
+                f"Transcription rejected: reason={exc.reason}, frames={len(frames)}, "
+                f"callback_age={callback_age:.2f}, last_rms={self.state.last_audio_rms:.6f}, "
+                f"audio_rms={exc.rms if exc.rms is not None else -1:.6f}, "
+                f"audio_peak={exc.peak if exc.peak is not None else -1:.6f}, "
+                f"audio_seconds={exc.seconds if exc.seconds is not None else -1:.2f}"
+            )
+            if exc.reason == "no_signal":
+                self._refresh_microphone_after_no_signal()
+            raise
         self.log_error(f"Local transcription completed: seconds={time.perf_counter() - started:.2f}, characters={len(text)}")
         return text
+
+    def _ensure_microphone_stream_live(self, max_callback_age=1.0):
+        stream = self.state.stream
+        if stream is None:
+            # Startup owns the initial open. Tests and early startup can reach
+            # this method before a stream exists, so do not open a second one.
+            return True
+        last_callback = self.state.last_audio_callback_at
+        callback_age = time.monotonic() - last_callback if last_callback else float("inf")
+        try:
+            stream_active = bool(stream.active)
+        except Exception:
+            stream_active = True
+        if stream_active and callback_age <= max_callback_age:
+            return True
+        self.log_error(
+            f"Microphone stream unhealthy before recording: active={stream_active}, "
+            f"callback_age={callback_age:.2f}; reconnecting"
+        )
+        return self._refresh_microphone_stream("stale before recording")
+
+    def _recording_stream_stalled(self, frame_count, prebuffer_frames, held_seconds):
+        if held_seconds < 0.6 or self.state.input_samplerate <= 0 or self.state.input_blocksize <= 0:
+            return False
+        expected_live_frames = held_seconds * self.state.input_samplerate / self.state.input_blocksize
+        captured_live_frames = max(0, frame_count - prebuffer_frames)
+        return expected_live_frames >= 10 and captured_live_frames < max(3, expected_live_frames * 0.35)
+
+    def _refresh_microphone_stream(self, reason):
+        """Recover a stale Windows audio stream after sleep or device changes."""
+        if not self.microphone_refresh_lock.acquire(blocking=False):
+            return False
+        try:
+            old_stream = self.state.stream
+            self.state.stream = None
+            try:
+                close_input_stream(old_stream)
+            except Exception as exc:
+                self.log_error("Previous microphone close failed during refresh", exc)
+            try:
+                replacement = open_input_stream(self.state, self.log_error)
+            except Exception as exc:
+                self.log_error(f"Microphone refresh failed: {reason}", exc)
+                return False
+            self.state.stream = replacement
+            self.log_error(f"Microphone stream refreshed: {reason}")
+            return True
+        finally:
+            self.microphone_refresh_lock.release()
+
+    def _refresh_microphone_after_no_signal(self):
+        return self._refresh_microphone_stream("no microphone signal")
 
     def set_orb(self, orb_state):
         if self.overlay:
@@ -559,15 +810,25 @@ class VoiceFlowApp:
         key = simpledialog.askstring("Update Groq API Key", "Paste your key:", show="*", parent=self.overlay.root)
         if not key or not key.strip():
             return
-        save_api_key(key.strip())
+        key = key.strip().strip("\"'")
+        if not key.startswith("gsk_"):
+            messagebox.showerror(
+                "VoiceFlow",
+                "This does not look like a Groq API key. Copy a key beginning with gsk_.",
+                parent=self.overlay.root,
+            )
+            return
         try:
-            self.state.client = ai_client.connect()
+            client = ai_client.connect(api_key=key)
+            save_api_key(key)
+            self.state.client = client
             self.state.ai_cleanup = True
-            messagebox.showinfo("VoiceFlow", "API key updated.", parent=self.overlay.root)
+            messagebox.showinfo("VoiceFlow", "Groq API key connected and saved securely.", parent=self.overlay.root)
         except Exception as exc:
             self.state.client = None
             self.state.ai_cleanup = False
-            messagebox.showerror("VoiceFlow", f"Failed: {exc}", parent=self.overlay.root)
+            self.log_error("Groq API key update failed", exc)
+            messagebox.showerror("VoiceFlow", ai_client.friendly_generation_error(exc), parent=self.overlay.root)
 
     def change_image_api_key(self):
         key = simpledialog.askstring("Update Image API Key", "Paste your Pollinations API key:", show="*", parent=self.overlay.root)
@@ -692,7 +953,14 @@ class VoiceFlowApp:
             self.log_error("Microphone discovery failed", exc)
             messagebox.showerror("VoiceFlow Settings", f"Could not list microphones: {exc}", parent=self.overlay.root)
             return
-        SettingsWindow(self.overlay.root, self.state.settings, devices, self.apply_settings)
+        SettingsWindow(
+            self.overlay.root,
+            self.state.settings,
+            devices,
+            self.apply_settings,
+            ai_key_configured=bool(load_api_key()),
+            change_api_key_callback=self.change_api_key,
+        )
 
     def apply_settings(
         self,
@@ -701,6 +969,7 @@ class VoiceFlowApp:
         max_record_seconds,
         mouse_side_button_mic=False,
         mouse_forward_action="command",
+        ai_features_enabled=False,
     ):
         previous_device = self.state.mic_device
         next_stream = self.state.stream
@@ -719,6 +988,10 @@ class VoiceFlowApp:
         self.state.settings.max_record_seconds = max_record_seconds
         self.state.settings.mouse_side_button_mic = mouse_side_button_mic
         self.state.settings.mouse_forward_action = mouse_forward_action
+        self.state.settings.ai_features_enabled = ai_features_enabled
+        if not ai_features_enabled:
+            self.state.client = None
+            self.state.ai_cleanup = False
         save_settings(self.state.settings)
         if self.hotkeys:
             self.hotkeys.refresh_mouse_listener()
@@ -1116,6 +1389,7 @@ class VoiceFlowApp:
             self.overlay.root.after(0, self.close)
 
     def close(self):
+        self._stop_conversation_session()
         if self.voice_chat_active:
             self.stop_voice_chat()
         self._set_idle()

@@ -21,6 +21,7 @@ class RuntimeState:
         self.recording_state = STATE_IDLE
         self.recording_mode = "dictation"
         self.max_record_timer = None
+        self.minimum_record_timer = None
         self.clipboard_snapshot = None
         self.is_pasting = False
         self.model = None
@@ -28,4 +29,8 @@ class RuntimeState:
         self.ai_cleanup = False
         self.stream = None
         self.last_audio_warning = None
+        self.last_audio_callback_at = 0.0
+        self.last_audio_rms = 0.0
+        self.recording_started_at = 0.0
+        self.recording_prebuffer_frames = 0
         self.ui_queue = queue.Queue()

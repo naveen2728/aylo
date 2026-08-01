@@ -10,6 +10,7 @@ from .state import STATE_IDLE, STATE_RECORDING
 
 
 ESCAPE_DOUBLE_TAP_SECONDS = 0.7
+RIGHT_SHIFT_HOLD_DELAY_SECONDS = 0.08
 MOUSE_BACK_BUTTON = getattr(ms.Button, "x1", None)
 MOUSE_FORWARD_BUTTON = getattr(ms.Button, "x2", None)
 MOUSE_MIC_BUTTONS = tuple(
@@ -33,6 +34,11 @@ XBUTTON1 = 1
 XBUTTON2 = 2
 VK_BROWSER_BACK = 0xA6
 VK_BROWSER_FORWARD = 0xA7
+VK_CONTROL = 0x11
+VK_LCONTROL = 0xA2
+VK_RCONTROL = 0xA3
+VK_SPACE = 0x20
+VK_RSHIFT = 0xA1
 
 
 class POINT(ctypes.Structure):
@@ -75,9 +81,10 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
 
 
 class MouseSideButtonHook:
-    def __init__(self, on_button, log_error=None):
+    def __init__(self, on_button, log_error=None, on_hotkey=None):
         self.on_button = on_button
         self.log_error = log_error or (lambda _message, _exc=None: None)
+        self.on_hotkey = on_hotkey
         self.thread = None
         self.thread_id = None
         self.hook = None
@@ -160,13 +167,16 @@ class MouseSideButtonHook:
     def _keyboard_callback(self, n_code, w_param, l_param):
         if n_code == HC_ACTION and w_param in (WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP):
             event = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+            pressed = w_param in (WM_KEYDOWN, WM_SYSKEYDOWN)
             button = None
             if event.vkCode == VK_BROWSER_BACK:
                 button = MOUSE_BACK_BUTTON
             elif event.vkCode == VK_BROWSER_FORWARD:
                 button = MOUSE_FORWARD_BUTTON
-            if button and self.on_button(button, w_param in (WM_KEYDOWN, WM_SYSKEYDOWN), "keyboard"):
+            if button and self.on_button(button, pressed, "keyboard"):
                 return 1
+            if self.on_hotkey:
+                self.on_hotkey(event.vkCode, pressed)
         return ctypes.windll.user32.CallNextHookEx(self.keyboard_hook, n_code, w_param, l_param)
 
 
@@ -194,7 +204,9 @@ class HotkeyListener:
         self.log_error = log_error or (lambda _message, _exc=None: None)
         self.ctrl_pressed = False
         self.space_pressed = False
-        self.shift_pressed = False
+        self.right_shift_pressed = False
+        self.right_shift_blocked = False
+        self.right_shift_pending = None
         self.escape_pressed = False
         self.last_escape_press = 0.0
         self.chord_down = False
@@ -209,16 +221,21 @@ class HotkeyListener:
     def start(self):
         self.listener.start()
         self.refresh_mouse_listener()
-        self.log_error("Hotkey listener active: Ctrl+Space=dictation, Ctrl+Shift+Space=AI command")
+        self.log_error("Hotkey listener active: Right Shift=dictation, Ctrl+Space=AI command")
 
     def stop(self):
         self.listener.stop()
         self._stop_mouse_listener()
+        self._cancel_pending_right_shift()
 
     def refresh_mouse_listener(self):
         enabled = bool(getattr(self.state.settings, "mouse_side_button_mic", False))
         if enabled and self.mouse_listener is None:
-            self.mouse_listener = MouseSideButtonHook(self.handle_mouse_button_event, self.log_error)
+            self.mouse_listener = MouseSideButtonHook(
+                self.handle_mouse_button_event,
+                self.log_error,
+                self.handle_native_hotkey_event,
+            )
             self.mouse_listener.start()
         elif not enabled:
             self._stop_mouse_listener()
@@ -235,16 +252,24 @@ class HotkeyListener:
         if self.state.is_pasting:
             return
         if key in (kb.Key.ctrl_l, kb.Key.ctrl_r, kb.Key.ctrl):
+            self._block_right_shift_modifier()
             self.ctrl_pressed = True
         elif key == kb.Key.space:
+            self._block_right_shift_modifier()
             self.space_pressed = True
-        elif key in (kb.Key.shift_l, kb.Key.shift_r, kb.Key.shift):
-            self.shift_pressed = True
+        elif key == kb.Key.shift_r:
+            if not self.right_shift_pressed:
+                self.right_shift_blocked = False
+            self.right_shift_pressed = True
+            self._schedule_right_shift_dictation()
+            return
         elif key == kb.Key.backspace:
+            self._cancel_pending_right_shift()
             self._reset_chord()
             self.cancel_recording()
             return
         elif key == kb.Key.esc:
+            self._cancel_pending_right_shift()
             if self.escape_pressed:
                 return
             self.escape_pressed = True
@@ -255,16 +280,91 @@ class HotkeyListener:
             else:
                 self.last_escape_press = now
             return
+        else:
+            self._block_right_shift_modifier()
+            return
 
         mode = self._active_chord_mode()
+        self._start_chord_if_ready(mode)
+
+    def _start_chord_if_ready(self, mode):
         if mode is not None and not self.chord_down:
             self.log_error(f"Hotkey chord pressed: {mode}")
             self._on_chord_press(mode)
 
+    def _schedule_right_shift_dictation(self):
+        if self.chord_down or self.right_shift_pending is not None:
+            return
+        timer = threading.Timer(RIGHT_SHIFT_HOLD_DELAY_SECONDS, self._start_right_shift_dictation)
+        timer.daemon = True
+        self.right_shift_pending = timer
+        timer.start()
+
+    def _cancel_pending_right_shift(self):
+        if self.right_shift_pending is not None:
+            self.right_shift_pending.cancel()
+            self.right_shift_pending = None
+
+    def _block_right_shift_modifier(self):
+        if self.right_shift_pressed:
+            self.right_shift_blocked = True
+            self._cancel_pending_right_shift()
+            # If the user starts a normal shortcut after briefly holding Right
+            # Shift, discard that recording rather than transcribing or pasting
+            # anything from it.
+            if self.chord_down and self.chord_input_mode == "dictation":
+                self._reset_chord()
+                self.cancel_recording(silent=True)
+
+    def _start_right_shift_dictation(self):
+        self.right_shift_pending = None
+        if self.state.is_pasting or not self.right_shift_pressed or self.chord_down:
+            return
+        self.log_error("Hotkey chord pressed: dictation")
+        self._on_chord_press("dictation")
+
+    def handle_native_hotkey_event(self, vk_code, pressed):
+        """Fallback for keyboards where pynput does not receive global key events."""
+        if self.state.is_pasting:
+            return
+
+        is_ctrl = vk_code in (VK_CONTROL, VK_LCONTROL, VK_RCONTROL)
+        if not is_ctrl and vk_code not in (VK_SPACE, VK_RSHIFT):
+            if pressed:
+                self._block_right_shift_modifier()
+            return
+
+        if is_ctrl:
+            self._block_right_shift_modifier()
+            self.ctrl_pressed = pressed
+        elif vk_code == VK_SPACE:
+            self._block_right_shift_modifier()
+            self.space_pressed = pressed
+        elif vk_code == VK_RSHIFT:
+            if pressed and not self.right_shift_pressed:
+                self.right_shift_blocked = False
+            self.right_shift_pressed = pressed
+            if pressed:
+                self._schedule_right_shift_dictation()
+            else:
+                self._cancel_pending_right_shift()
+                self.right_shift_blocked = False
+                if self.chord_down and self._active_chord_mode() != self.chord_input_mode:
+                    self._on_chord_release()
+            return
+
+        if pressed:
+            mode = self._active_chord_mode()
+            self._start_chord_if_ready(mode)
+        elif self.chord_down and self._active_chord_mode() != self.chord_input_mode:
+            self._on_chord_release()
+
     def _active_chord_mode(self):
-        if not self.ctrl_pressed or not self.space_pressed:
-            return None
-        return "command" if self.shift_pressed else "dictation"
+        if self.ctrl_pressed and self.space_pressed:
+            return "command"
+        if self.right_shift_pressed and not self.right_shift_blocked:
+            return "dictation"
+        return None
 
     def _on_chord_press(self, mode):
         self.chord_down = True
@@ -280,6 +380,7 @@ class HotkeyListener:
             self.start_recording(mode=mode)
 
     def _reset_chord(self):
+        self._cancel_pending_right_shift()
         self.chord_down = False
         self.chord_input_mode = None
         self.chord_recording_mode = None
@@ -289,8 +390,10 @@ class HotkeyListener:
             self.ctrl_pressed = False
         elif key == kb.Key.space:
             self.space_pressed = False
-        elif key in (kb.Key.shift_l, kb.Key.shift_r, kb.Key.shift):
-            self.shift_pressed = False
+        elif key == kb.Key.shift_r:
+            self.right_shift_pressed = False
+            self._cancel_pending_right_shift()
+            self.right_shift_blocked = False
         elif key == kb.Key.esc:
             self.escape_pressed = False
 

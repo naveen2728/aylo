@@ -72,8 +72,8 @@ The latest 20 successful dictation and AI results are stored at:
 
 ## Controls
 
-- Hold `Ctrl+Space` to dictate. Release to paste the transcription.
-- Hold `Shift` briefly to start recording an AI command. Release to run it. Quick Shift taps still work for capital letters.
+- Hold `Right Shift` to dictate. Release to paste the transcription.
+- Hold `Ctrl+Space` to record an AI command. Release to run it.
 - Optional: enable mouse side buttons from Settings. Back side button records dictation; Forward side button records an AI command.
 - Press `Backspace` while recording to cancel and discard the recording.
 - Press `Escape` twice quickly to quit VoiceFlow. A single Escape press is ignored.
@@ -82,7 +82,7 @@ The latest 20 successful dictation and AI results are stored at:
 
 Clipboard-based AI commands and rewrites accept up to 100 copied lines at a time.
 Generated code has outer Markdown fences removed before it is copied or pasted.
-Automatic dictation and Shift-command pastes restore the text that was previously
+Automatic dictation and AI-command pastes restore the text that was previously
 on the clipboard. Right-click rewrite actions intentionally leave their result copied.
 
 The `Start VoiceFlow with Windows` menu option stores a current-user startup entry.

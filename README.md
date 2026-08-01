@@ -20,6 +20,15 @@ The project is usable but still being prepared for a wider public release. APIs 
 - Windows Credential Manager storage for API keys and OAuth tokens
 - Portable Windows executable and installer build scripts
 
+## What's new in 3.1
+
+- Mouse side-button push-to-talk: hold Back to dictate or Forward to run an AI command, then release to process.
+- Screenshot markup with crop, arrows, rectangles, ellipses, red/blue highlights, text notes, and clipboard copy.
+- Larger, clearer screenshot and Ask AI interfaces with one-click reply copying.
+- Animated speaking/thinking orb states without changing the orb's compact size.
+- More reliable microphone recovery and short-phrase capture.
+- Cleaner Groq chat and screenshot answers with hidden model reasoning.
+
 ## Requirements
 
 - Windows 10 or 11, 64-bit
@@ -45,9 +54,9 @@ The first run downloads the Whisper `base.en` model unless a bundled model is pr
 
 ## Main controls
 
-- Hold `Ctrl+Space` to dictate; release to paste.
-- Hold `Ctrl+Shift+Space` to record an AI command; release to run it.
-- Optional mouse workflow: map one mouse button to `Ctrl+Space` for dictation and another to `Ctrl+Shift+Space` for AI commands.
+- Hold `Right Shift` to dictate; release to paste.
+- Hold `Ctrl+Space` to record an AI command; release to run it.
+- Optional mouse workflow: map one mouse button to dictation and another to AI commands.
 - Press `Backspace` while recording to cancel.
 - Press `Escape` twice quickly to quit.
 - Right-click the floating orb for settings, diagnostics, AI keys, Gmail actions, and realtime voice chat.

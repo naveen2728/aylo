@@ -30,10 +30,11 @@ class AppSettings:
     pre_buffer_seconds: float = 0.3
     max_record_seconds: int = 30
     min_record_seconds: float = 0.3
-    silence_rms_threshold: float = 0.000001
+    silence_rms_threshold: float = 0.0008
     first_run_complete: bool = False
-    mouse_side_button_mic: bool = False
+    mouse_side_button_mic: bool = True
     mouse_forward_action: str = "command"
+    ai_features_enabled: bool = False
 
 
 def load_settings(path=SETTINGS_FILE):
@@ -75,10 +76,12 @@ def _validated_settings(settings):
         settings.silence_rms_threshold = defaults.silence_rms_threshold
     else:
         legacy_thresholds = {
-            0.001: 0.00001,
-            0.002: 0.000001,
-            0.005: 0.0002,
-            0.00005: 0.000001,
+            0.001: defaults.silence_rms_threshold,
+            0.002: defaults.silence_rms_threshold,
+            0.005: 0.002,
+            0.00005: defaults.silence_rms_threshold,
+            0.000001: defaults.silence_rms_threshold,
+            0.0000001: 0.0002,
         }
         settings.silence_rms_threshold = legacy_thresholds.get(
             settings.silence_rms_threshold,
@@ -90,6 +93,8 @@ def _validated_settings(settings):
         settings.mouse_side_button_mic = defaults.mouse_side_button_mic
     if settings.mouse_forward_action != "command":
         settings.mouse_forward_action = defaults.mouse_forward_action
+    if not isinstance(settings.ai_features_enabled, bool):
+        settings.ai_features_enabled = defaults.ai_features_enabled
     return settings
 
 

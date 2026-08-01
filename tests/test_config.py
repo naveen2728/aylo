@@ -14,13 +14,15 @@ class ConfigTests(unittest.TestCase):
             path = os.path.join(directory, "config.json")
             settings = load_settings(path)
             self.assertEqual(settings, AppSettings())
-            self.assertFalse(settings.mouse_side_button_mic)
+            self.assertTrue(settings.mouse_side_button_mic)
             self.assertEqual(settings.mouse_forward_action, "command")
+            self.assertFalse(settings.ai_features_enabled)
             with open(path, "r", encoding="utf-8") as handle:
                 stored = json.load(handle)
             self.assertEqual(stored["samplerate"], 16000)
-            self.assertFalse(stored["mouse_side_button_mic"])
+            self.assertTrue(stored["mouse_side_button_mic"])
             self.assertEqual(stored["mouse_forward_action"], "command")
+            self.assertFalse(stored["ai_features_enabled"])
 
     def test_preserves_valid_values_and_ignores_unknown_values(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -45,6 +47,7 @@ class ConfigTests(unittest.TestCase):
                         "first_run_complete": "yes",
                         "mouse_side_button_mic": "yes",
                         "mouse_forward_action": "bad-action",
+                        "ai_features_enabled": "yes",
                     },
                     handle,
                 )
@@ -54,6 +57,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(settings.first_run_complete, AppSettings().first_run_complete)
             self.assertEqual(settings.mouse_side_button_mic, AppSettings().mouse_side_button_mic)
             self.assertEqual(settings.mouse_forward_action, AppSettings().mouse_forward_action)
+            self.assertEqual(settings.ai_features_enabled, AppSettings().ai_features_enabled)
 
     def test_migrates_legacy_normal_sensitivity(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -61,7 +65,7 @@ class ConfigTests(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump({"silence_rms_threshold": 0.002}, handle)
             settings = load_settings(path)
-            self.assertEqual(settings.silence_rms_threshold, 0.000001)
+            self.assertEqual(settings.silence_rms_threshold, AppSettings().silence_rms_threshold)
 
     def test_migrates_previous_quiet_microphone_threshold(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -69,7 +73,7 @@ class ConfigTests(unittest.TestCase):
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump({"silence_rms_threshold": 0.00005}, handle)
             settings = load_settings(path)
-            self.assertEqual(settings.silence_rms_threshold, 0.000001)
+            self.assertEqual(settings.silence_rms_threshold, AppSettings().silence_rms_threshold)
 
     def test_load_api_key_uses_existing_environment_value(self):
         with patch.dict(os.environ, {"GROQ_API_KEY": "from-environment"}, clear=False), patch("voiceflow_app.config._read_credential") as read:

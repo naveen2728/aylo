@@ -1,9 +1,14 @@
 import base64
 import io
+import re
 
 
 MODEL = "llama-3.1-8b-instant"
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+CHAT_MODEL = "llama-3.3-70b-versatile"
+# Groq retired the Llama 4 vision models in July 2026.  Qwen 3.6 is the
+# current Groq model that accepts both screenshots and text.
+VISION_MODEL = "qwen/qwen3.6-27b"
+VISION_MODEL_FALLBACKS = (VISION_MODEL,)
 MAX_VISION_IMAGE_BYTES = 3_500_000
 ASSISTANT_PREAMBLES = (
     "sure",
@@ -32,11 +37,12 @@ ANSWER_ONLY_SYSTEM_PROMPT = (
     "If the user asks for a rewrite or translation, return only the rewritten or translated content."
 )
 CHAT_SYSTEM_PROMPT = (
-    "You are VoiceFlow AI, a concise, helpful desktop assistant. "
-    "Answer naturally in a short conversational style. "
-    "Do not add markdown fences unless the user asks for code. "
-    "When giving steps, keep them practical and brief. "
-    "When writing bullet lists, use the bullet character '•' instead of markdown asterisks."
+    "You are VoiceFlow AI, a concise desktop assistant. Start with the direct answer. "
+    "Use one or two short paragraphs by default. Use a list only when it improves clarity, "
+    "and prefix each list item with a plain hyphen and space. "
+    "Do not use Markdown headings, bold markers, filler introductions, or repeat the user's request. "
+    "Keep the tone and formatting consistent across replies. "
+    "Ask a follow-up question only when required information is truly missing."
 )
 
 
@@ -62,16 +68,28 @@ def clean_generated_output(text):
 
 
 def clean_chat_output(text):
-    result = clean_generated_output(text)
+    result = clean_generated_output(strip_reasoning_output(text))
     lines = []
     for line in result.splitlines():
         stripped = line.lstrip()
         indent = line[: len(line) - len(stripped)]
-        if stripped.startswith("* "):
+        if stripped.startswith(("* ", "- ", "+ ")):
             lines.append(f"{indent}• {stripped[2:]}")
         else:
             lines.append(line)
     return "\n".join(lines).strip()
+
+
+def strip_reasoning_output(text):
+    """Remove reasoning-model scratch work before anything reaches the UI."""
+    result = text or ""
+    result = re.sub(r"<think>.*?</think>\s*", "", result, flags=re.IGNORECASE | re.DOTALL)
+    result = re.sub(r"<analysis>.*?</analysis>\s*", "", result, flags=re.IGNORECASE | re.DOTALL)
+    # Never expose an incomplete raw reasoning block if a provider truncates it.
+    open_tags = [position for tag in ("<think>", "<analysis>") if (position := result.lower().find(tag)) >= 0]
+    if open_tags:
+        result = result[: min(open_tags)]
+    return result.strip()
 
 
 def _is_assistant_preamble(line):
@@ -88,15 +106,17 @@ def friendly_generation_error(exc):
         return "The AI request is too large. Copy less text and try again."
     if status_code == 429 or "rate limit" in message or "rate_limit" in message:
         return "Groq limit reached. Try again shortly."
+    if status_code == 404 or "model_not_found" in message or "model" in message and "not found" in message:
+        return "The selected Groq model is unavailable for this API key. Check Groq model permissions or try another key."
     if "connection" in message or "timed out" in message or "timeout" in message:
         return "Could not connect to Groq. Check your internet connection."
     return "AI request failed. Try again."
 
 
-def connect():
+def connect(api_key=None):
     from groq import Groq
 
-    client = Groq()
+    client = Groq(api_key=api_key) if api_key else Groq()
     client.chat.completions.create(
         model=MODEL,
         max_tokens=1,
@@ -147,7 +167,7 @@ def generate(client, prompt, log_error):
 def chat(client, messages, log_error):
     try:
         response = client.chat.completions.create(
-            model=MODEL,
+            model=CHAT_MODEL,
             max_tokens=2048,
             messages=[{"role": "system", "content": CHAT_SYSTEM_PROMPT}] + messages,
         )
@@ -184,24 +204,45 @@ def read_screen(client, question, screenshot_path, log_error):
         image_url = _image_data_url(screenshot_path)
         prompt = (
             f"{question}\n\n"
-            "Read the screenshot carefully. If there is visible text, quote the important parts exactly enough "
-            "to help the user. If it shows an error or app UI, explain what is happening and what to do next. "
-            "Keep the answer concise and practical."
+            "Answer the user's question using only what is visibly supported by the screenshot. "
+            "Return only the final answer—never show analysis, reasoning, <think> tags, or drafting notes. "
+            "Do not speculate about hidden context or narrate how you inspected the image. "
+            "If it shows an error or app UI, briefly explain what is happening and the most useful next step. "
+            "Keep the answer concise: one short paragraph or at most four simple bullet points."
         )
-        response = client.chat.completions.create(
-            model=VISION_MODEL,
-            max_tokens=900,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": image_url}},
+        last_error = None
+        for model in VISION_MODEL_FALLBACKS:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    max_completion_tokens=700,
+                    reasoning_format="hidden",
+                    reasoning_effort="none",
+                    temperature=0.3,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": image_url}},
+                            ],
+                        }
                     ],
-                }
-            ],
-        )
-        return response.choices[0].message.content.strip()
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+                message = str(exc).lower()
+                status_code = getattr(exc, "status_code", None)
+                if status_code != 404 and "model_not_found" not in message and "model" not in message:
+                    raise
+                log_error(f"Screen vision model unavailable: {model}", exc)
+        else:
+            raise last_error
+        result = clean_chat_output(response.choices[0].message.content)
+        if not result:
+            raise GenerationError("The screen reader did not return a final answer. Please try again.")
+        return result
     except GenerationError:
         raise
     except Exception as exc:

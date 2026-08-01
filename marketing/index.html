@@ -114,6 +114,50 @@
       display: block;
       background: #151515;
     }
+    .demo-video-card {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: linear-gradient(145deg, #17191f, #0d0e11);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+    }
+    .demo-video-card video {
+      width: 100%;
+      display: block;
+      aspect-ratio: 16 / 10;
+      object-fit: cover;
+      background: #151515;
+    }
+    .demo-video-caption {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 10px;
+      background: rgba(8, 9, 12, 0.72);
+      backdrop-filter: blur(12px);
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .demo-video-caption strong {
+      color: var(--text);
+    }
+    .demo-pill {
+      color: #082f49;
+      background: var(--accent);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-weight: 800;
+      font-size: 12px;
+    }
     .section {
       padding: 64px 0;
       border-top: 1px solid var(--line);
@@ -189,7 +233,7 @@
       <a class="brand" href="#">VoiceFlow</a>
       <div class="nav-actions">
         <a class="button" href="#pricing">Pricing</a>
-        <a class="button primary" href="../release/VoiceFlow-3.0.0-portable.zip">Download</a>
+        <a class="button primary" href="../release/VoiceFlow-3.1.0-portable.zip">Download</a>
       </div>
     </nav>
   </header>
@@ -201,11 +245,26 @@
           <h1>VoiceFlow</h1>
           <p class="lead">Dictate anywhere on Windows. Clean it with AI. Connect mouse buttons for instant push-to-talk dictation and AI voice commands.</p>
           <div class="hero-actions">
-            <a class="button primary" href="../release/VoiceFlow-3.0.0-portable.zip">Download for Windows</a>
+            <a class="button primary" href="../release/VoiceFlow-3.1.0-portable.zip">Download for Windows</a>
             <a class="button upgrade" href="#pricing">Upgrade to Plus</a>
           </div>
         </div>
-        <img class="product-shot" src="../product_hunt_assets/voiceflow-feature-overview.png" alt="VoiceFlow feature overview">
+        <div class="demo-video-card" aria-label="VoiceFlow screen demo video">
+          <video
+            autoplay
+            muted
+            loop
+            playsinline
+            poster="../product_hunt_assets/voiceflow-feature-overview.png"
+          >
+            <source src="assets/voiceflow-screen-demo.mp4" type="video/mp4">
+            <img class="product-shot" src="../product_hunt_assets/voiceflow-feature-overview.png" alt="VoiceFlow feature overview">
+          </video>
+          <div class="demo-video-caption">
+            <span><strong>AI voice control</strong> with mouse push-to-talk</span>
+            <span class="demo-pill">Screen demo</span>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -215,7 +274,7 @@
         <div class="features">
           <article class="card">
             <h3>Speak anywhere</h3>
-            <p>Hold Ctrl+Space, speak, and VoiceFlow pastes text into email, docs, chat, browsers, and editors.</p>
+            <p>Hold Right Shift, speak, and VoiceFlow pastes text into email, docs, chat, browsers, and editors.</p>
           </article>
           <article class="card">
             <h3>Mouse push-to-talk</h3>

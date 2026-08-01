@@ -1,7 +1,9 @@
 import ctypes
+import io
 import math
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -18,25 +20,39 @@ AI_PANEL_H = 780
 AI_PANEL_MARGIN = 20
 PULSE_PADDING = 8
 OUTER_RING_RADIUS = R + PULSE_PADDING
+AI_INPUT_FONT_SIZE = 14
+AI_REPLY_FONT_SIZE = 16
+AI_PENDING_FONT_SIZE = 15
+# A fixed logo mark: equal-width/equal-gap columns with exact left-right symmetry.
 BLDS = [
-    {"dx": -34, "w": 7, "baseH": 20, "phase": 0.0, "speed": 1.9},
-    {"dx": -23, "w": 7, "baseH": 32, "phase": 1.3, "speed": 2.4},
-    {"dx": -12, "w": 7, "baseH": 43, "phase": 0.5, "speed": 1.6},
-    {"dx": -1, "w": 7, "baseH": 52, "phase": 2.0, "speed": 2.1},
-    {"dx": 10, "w": 7, "baseH": 38, "phase": 0.2, "speed": 1.4},
-    {"dx": 21, "w": 7, "baseH": 27, "phase": 2.5, "speed": 2.6},
-    {"dx": 32, "w": 7, "baseH": 18, "phase": 1.0, "speed": 1.7},
+    {"dx": -40, "w": 8, "baseH": 20, "phase": 0.0, "speed": 1.9},
+    {"dx": -28, "w": 8, "baseH": 32, "phase": 1.3, "speed": 2.4},
+    {"dx": -16, "w": 8, "baseH": 44, "phase": 0.5, "speed": 1.6},
+    {"dx": -4, "w": 8, "baseH": 56, "phase": 2.0, "speed": 2.1},
+    {"dx": 8, "w": 8, "baseH": 44, "phase": 0.2, "speed": 1.4},
+    {"dx": 20, "w": 8, "baseH": 32, "phase": 2.5, "speed": 2.6},
+    {"dx": 32, "w": 8, "baseH": 20, "phase": 1.0, "speed": 1.7},
 ]
-SHADES = ["#c7c7c7", "#dedede", "#eeeeee", "#ffffff", "#eeeeee", "#dedede", "#c7c7c7"]
+SHADES = ["#f3f4f6"] * len(BLDS)
 MENU_STYLE = {
     "bg": "#171717",
     "fg": "#e5e7eb",
     "activebackground": "#334155",
     "activeforeground": "#ffffff",
-    "font": ("Segoe UI", 14),
+    "font": ("Segoe UI", 18),
     "borderwidth": 2,
     "relief": "solid",
 }
+
+TK_BASE_SCALING = 96 / 72
+
+
+def normalize_tk_scaling(window):
+    """Keep Tk fonts aligned with physical-pixel geometry under Per-Monitor V2."""
+    try:
+        window.tk.call("tk", "scaling", TK_BASE_SCALING)
+    except Exception:
+        pass
 
 
 def scaled_crop_box(start_x, start_y, end_x, end_y, scale, image_width, image_height, min_size=8):
@@ -54,6 +70,93 @@ def scaled_crop_box(start_x, start_y, end_x, end_y, scale, image_width, image_he
         int(right / scale),
         int(bottom / scale),
     )
+
+
+def screenshot_editor_preview_limits(screen_width, screen_height):
+    """Use most of the display for screenshot inspection without covering OS edges."""
+    return (
+        max(420, min(1280, screen_width - 80)),
+        max(300, min(720, screen_height - 240)),
+    )
+
+
+def render_screenshot_annotations(image, annotations, crop_box=None):
+    """Return a cropped screenshot with shape and text annotations rendered."""
+    from PIL import ImageDraw, ImageFont
+
+    source = image.convert("RGB")
+    if crop_box is None:
+        crop_box = (0, 0, source.width, source.height)
+    left, top, right, bottom = crop_box
+    result = source.crop((left, top, right, bottom))
+    draw = ImageDraw.Draw(result)
+
+    for annotation in annotations:
+        color = annotation.get("color", "#2563eb")
+        kind = annotation.get("kind")
+        x1 = int(annotation.get("x1", 0) - left)
+        y1 = int(annotation.get("y1", 0) - top)
+        x2 = int(annotation.get("x2", x1) - left)
+        y2 = int(annotation.get("y2", y1) - top)
+        width = max(2, int(annotation.get("width", 3)))
+        box = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
+        if kind == "rectangle":
+            draw.rectangle(box, outline=color, width=width)
+        elif kind == "ellipse":
+            draw.ellipse(box, outline=color, width=width)
+        elif kind == "arrow":
+            draw.line((x1, y1, x2, y2), fill=color, width=width)
+            angle = math.atan2(y2 - y1, x2 - x1)
+            head_length = max(10, width * 4)
+            wing = head_length * 0.55
+            back_x = x2 - head_length * math.cos(angle)
+            back_y = y2 - head_length * math.sin(angle)
+            left_point = (
+                back_x + wing * math.sin(angle),
+                back_y - wing * math.cos(angle),
+            )
+            right_point = (
+                back_x - wing * math.sin(angle),
+                back_y + wing * math.cos(angle),
+            )
+            draw.polygon(((x2, y2), left_point, right_point), fill=color)
+        elif kind == "text":
+            text = str(annotation.get("text", "")).strip()
+            if not text:
+                continue
+            size = max(14, int(annotation.get("font_size", 24)))
+            try:
+                font = ImageFont.truetype("arial.ttf", size)
+            except OSError:
+                font = ImageFont.load_default()
+            # A light background keeps notes legible on both dark and bright screens.
+            text_box = draw.textbbox((x1, y1), text, font=font, stroke_width=1)
+            padding = max(4, size // 5)
+            background = (
+                text_box[0] - padding,
+                text_box[1] - padding,
+                text_box[2] + padding,
+                text_box[3] + padding,
+            )
+            draw.rounded_rectangle(background, radius=padding, fill="#ffffff")
+            draw.text((x1, y1), text, fill=color, font=font, stroke_width=1, stroke_fill=color)
+    return result
+
+
+def copy_image_to_clipboard(image):
+    """Copy a Pillow image to the Windows clipboard as bitmap data."""
+    import win32clipboard
+
+    buffer = io.BytesIO()
+    image.convert("RGB").save(buffer, "BMP")
+    dib = buffer.getvalue()[14:]
+    buffer.close()
+    win32clipboard.OpenClipboard()
+    try:
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(win32clipboard.CF_DIB, dib)
+    finally:
+        win32clipboard.CloseClipboard()
 
 
 def looks_like_screen_question(text):
@@ -78,18 +181,63 @@ def looks_like_screen_question(text):
     return any(word in normalized for word in ("screen", "screenshot", "image", "error", "window", "page"))
 
 
+def format_chat_display_text(text):
+    """Turn lightweight Markdown into readable plain text for Tk labels."""
+    formatted = (text or "").replace("\r\n", "\n")
+    formatted = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", formatted)
+    formatted = re.sub(r"(?m)^(\s*)[-*+]\s+", r"\1• ", formatted)
+    formatted = re.sub(r"(?m)^(\s*)\d+[.)]\s+", r"\1• ", formatted)
+    formatted = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda match: match.group(1) or match.group(2), formatted)
+    formatted = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)|(?<!_)_([^_\n]+)_(?!_)", lambda match: match.group(1) or match.group(2), formatted)
+    formatted = re.sub(r"`([^`\n]+)`", r"\1", formatted)
+    formatted = re.sub(r"\n{3,}", "\n\n", formatted)
+    return formatted.strip()
+
+
+def thinking_display_text(label, step):
+    base = (label or "Thinking").strip().rstrip(".")
+    return f"{base}{'.' * (step % 4)}"
+
+
+def animated_bar_height(bar, anim_t, state):
+    if state == "recording":
+        amplitude = 0.42
+    elif state in ("thinking", "cleaning"):
+        amplitude = 0.16
+    else:
+        return bar["baseH"]
+    wave = math.sin(anim_t * bar["speed"] + bar["phase"]) * bar["baseH"] * amplitude
+    return max(4, int(bar["baseH"] + wave))
+
+
+def pulse_ring_style(state, anim_t):
+    styles = {
+        "recording": ("#ffffff", 3.0, 3),
+        "cleaning": ("#d4d4d4", 2.0, 2),
+        "thinking": ("#e5e5e5", 2.5, 2),
+        "typing": ("#f5f5f5", 1.5, 2),
+        "done": ("#d4d4d4", 1.0, 2),
+    }
+    if state not in styles:
+        return OUTER_RING_RADIUS, "#2a2a2a", 1
+    color, pulse_amount, width = styles[state]
+    pulse = (math.sin(anim_t * 3.6) + 1.0) * 0.5
+    return OUTER_RING_RADIUS + pulse_amount * pulse, color, width
+
+
 class SplashScreen:
     def __init__(self):
         self.win = tk.Tk()
+        normalize_tk_scaling(self.win)
         self.win.overrideredirect(True)
         self.win.attributes("-topmost", True)
         self.win.configure(bg="#111111")
-        width, height = 300, 110
+        width, height = 370, 132
         screen_width = self.win.winfo_screenwidth()
         screen_height = self.win.winfo_screenheight()
         self.win.geometry(f"{width}x{height}+{(screen_width-width)//2}+{(screen_height-height)//2}")
-        tk.Label(self.win, text="VoiceFlow", bg="#111111", fg="#ffffff", font=("Helvetica", 18, "bold")).pack(pady=(18, 4))
-        self.status = tk.Label(self.win, text="Starting...", bg="#111111", fg="#888888", font=("Helvetica", 10))
+        tk.Label(self.win, text="VoiceFlow", bg="#111111", fg="#ffffff", font=("Helvetica", 24, "bold")).pack(pady=(18, 4))
+        self.status = tk.Label(self.win, text="Starting...", bg="#111111", fg="#a3a3a3", font=("Helvetica", 14))
         self.status.pack()
         self.timeout_id = self.win.after(30000, self._timeout)
         self.win.update()
@@ -113,19 +261,49 @@ def prompt_for_api_key_if_needed(save_api_key):
     if os.environ.get("GROQ_API_KEY"):
         return
     window = tk.Tk()
-    window.withdraw()
-    messagebox.showinfo(
-        "VoiceFlow",
-        "Welcome to VoiceFlow.\n\n"
-        "A Groq API key enables AI cleanup and voice commands.\n"
-        "You can skip this and still use basic dictation.\n\n"
-        "Get a free key at https://console.groq.com",
-        parent=window,
-    )
-    key = simpledialog.askstring("Groq API Key", "Paste your key:", show="*", parent=window)
-    window.destroy()
-    if key and key.strip():
-        save_api_key(key.strip())
+    normalize_tk_scaling(window)
+    window.title("Set up VoiceFlow AI")
+    window.resizable(False, False)
+    window.attributes("-topmost", True)
+    window.configure(bg="#111111")
+    width, height = 470, 300
+    x = (window.winfo_screenwidth() - width) // 2
+    y = (window.winfo_screenheight() - height) // 2
+    window.geometry(f"{width}x{height}+{x}+{y}")
+    window.minsize(width, height)
+    window.maxsize(width, height)
+
+    body = tk.Frame(window, bg="#111111", padx=24, pady=22)
+    body.pack(fill="both", expand=True)
+    tk.Label(body, text="Enable VoiceFlow AI", bg="#111111", fg="#ffffff", font=("Segoe UI", 17, "bold")).pack(anchor="w")
+    tk.Label(
+        body,
+        text="Optional: add your free Groq API key for Ctrl + Space AI commands. Right Shift dictation stays offline.",
+        bg="#111111", fg="#c4c4c4", wraplength=415, justify="left",
+    ).pack(anchor="w", pady=(8, 14))
+    tk.Label(body, text="Groq API key (starts with gsk_)", bg="#111111", fg="#e5e7eb").pack(anchor="w")
+    key_var = tk.StringVar()
+    entry = tk.Entry(body, textvariable=key_var, show="*", bg="#202020", fg="#ffffff", insertbackground="#ffffff", relief="flat")
+    entry.pack(fill="x", ipady=7, pady=(5, 12))
+    status = tk.Label(body, text="You can add or change this later in Settings.", bg="#111111", fg="#9ca3af", anchor="w")
+    status.pack(anchor="w")
+
+    def finish(save):
+        key = key_var.get().strip().strip("\"'")
+        if save and key:
+            try:
+                save_api_key(key)
+            except Exception as exc:
+                status.configure(text=str(exc), fg="#fca5a5")
+                return
+        window.destroy()
+
+    actions = tk.Frame(body, bg="#111111")
+    actions.pack(fill="x", side="bottom", pady=(16, 0))
+    tk.Button(actions, text="Skip for now", command=lambda: finish(False), bg="#333333", fg="#dddddd", relief="flat", padx=14, pady=7).pack(side="right")
+    tk.Button(actions, text="Save API key", command=lambda: finish(True), bg="#2563eb", fg="#ffffff", relief="flat", padx=14, pady=7).pack(side="right", padx=(0, 8))
+    entry.focus_set()
+    window.mainloop()
 
 
 class Overlay:
@@ -164,6 +342,7 @@ class Overlay:
         start_voice_chat,
         stop_voice_chat,
         is_voice_chat_active,
+        open_conversation,
     ):
         self.state = state
         self.open_settings = open_settings
@@ -198,6 +377,7 @@ class Overlay:
         self.start_voice_chat = start_voice_chat
         self.stop_voice_chat = stop_voice_chat
         self.is_voice_chat_active = is_voice_chat_active
+        self.open_conversation = open_conversation
         self.gmail_panel = None
         self.gmail_panel_body = None
         self.ai_panel = None
@@ -225,19 +405,26 @@ class Overlay:
         self.previous_state = None
         self.drag_x = 0
         self.drag_y = 0
+        self.orb_size_clamping = False
 
         self.root = tk.Tk()
+        normalize_tk_scaling(self.root)
         self.root.overrideredirect(True)
         self.root.attributes("-topmost", True)
         self.root.geometry(f"{ORB_W}x{ORB_H}+1200+50")
+        self.root.minsize(ORB_W, ORB_H)
+        self.root.maxsize(ORB_W, ORB_H)
+        self.root.resizable(False, False)
         self.root.attributes("-transparentcolor", "black")
         self.root.configure(bg="black")
         self.canvas = tk.Canvas(self.root, width=ORB_W, height=ORB_H, highlightthickness=0, bg="black")
+        self.canvas.pack_propagate(False)
         self.canvas.pack()
         self._build_canvas()
         self.canvas.bind("<ButtonPress-1>", self._start_move)
         self.canvas.bind("<B1-Motion>", self._do_move)
         self.canvas.bind("<ButtonPress-3>", self._show_context_menu)
+        self.root.bind("<Configure>", self._enforce_orb_size, add="+")
         self.root.protocol("WM_DELETE_WINDOW", self.close_app)
         self.root.after(50, self._schedule_ui_updates)
         self.root.after(100, self._animate_loop)
@@ -470,17 +657,19 @@ class Overlay:
         self.ai_panel.resizable(False, False)
         self.ai_panel.pack_propagate(False)
         self.ai_panel.protocol("WM_DELETE_WINDOW", self._close_ai_panel)
-        header = tk.Frame(self.ai_panel, bg="#101010", padx=24, pady=16)
-        header.pack(fill="x")
+        self.ai_panel.grid_columnconfigure(0, weight=1)
+        self.ai_panel.grid_rowconfigure(1, weight=1)
+        header = tk.Frame(self.ai_panel, bg="#101010", padx=14, pady=10)
+        header.grid(row=0, column=0, sticky="ew")
         title_block = tk.Frame(header, bg="#101010")
         title_block.pack(side="left")
-        tk.Label(title_block, text="VoiceFlow AI", bg="#101010", fg="#ffffff", font=("Segoe UI", 18, "bold")).pack(anchor="w")
-        tk.Label(title_block, text="Conversation", bg="#101010", fg="#8f8f8f", font=("Segoe UI", 10)).pack(anchor="w", pady=(2, 0))
-        tk.Button(header, text="Close", command=self._close_ai_panel, bg="#242424", fg="#dddddd", relief="flat", padx=14, pady=8, font=("Segoe UI", 10)).pack(side="right")
-        tk.Button(header, text="Clear", command=self._clear_ai_chat, bg="#242424", fg="#dddddd", relief="flat", padx=14, pady=8, font=("Segoe UI", 10)).pack(side="right", padx=(0, 8))
+        tk.Label(title_block, text="VoiceFlow AI", bg="#101010", fg="#ffffff", font=("Segoe UI", 15, "bold")).pack(anchor="w")
+        tk.Label(title_block, text="Conversation", bg="#101010", fg="#8f8f8f", font=("Segoe UI", 12)).pack(anchor="w", pady=(1, 0))
+        tk.Button(header, text="Close", command=self._close_ai_panel, bg="#242424", fg="#dddddd", relief="flat", padx=9, pady=5, font=("Segoe UI", 12)).pack(side="right")
+        tk.Button(header, text="Clear", command=self._clear_ai_chat, bg="#242424", fg="#dddddd", relief="flat", padx=9, pady=5, font=("Segoe UI", 12)).pack(side="right", padx=(0, 6))
 
         content = tk.Frame(self.ai_panel, bg="#101010")
-        content.pack(fill="both", expand=True)
+        content.grid(row=1, column=0, sticky="nsew")
         self.ai_canvas = tk.Canvas(content, bg="#101010", highlightthickness=0)
         self.ai_scrollbar = tk.Scrollbar(content, orient="vertical", command=self.ai_canvas.yview)
         self.ai_canvas.configure(yscrollcommand=self.ai_scrollbar.set)
@@ -490,8 +679,10 @@ class Overlay:
         self.ai_canvas.bind("<Configure>", lambda event: self._resize_ai_canvas_window(event.width))
         self.ai_canvas.pack(side="left", fill="both", expand=True)
         self.ai_scrollbar.pack(side="right", fill="y")
-        self._bind_mousewheel(self.ai_canvas)
-        self._chat_input(self.ai_panel)
+        self.ai_panel.bind("<MouseWheel>", self._scroll_ai_with_wheel, add="+")
+        self.ai_panel.bind("<Button-4>", self._scroll_ai_with_wheel, add="+")
+        self.ai_panel.bind("<Button-5>", self._scroll_ai_with_wheel, add="+")
+        self._chat_input(self.ai_panel, use_grid=True)
         self._render_pending_attachment()
 
     def _close_ai_panel(self):
@@ -581,10 +772,16 @@ class Overlay:
             preview = self._screenshot_preview(self.ai_messages_body, message["image_path"], message)
             if preview is not None:
                 widgets.append(preview)
-        bubble = self._chat_bubble(self.ai_messages_body, message["text"], message["role"])
+        bubble = self._chat_bubble(
+            self.ai_messages_body,
+            message["text"],
+            message["role"],
+            pending=bool(message.get("pending")),
+        )
         widgets.append(bubble)
         self.ai_message_widgets.append({"widgets": widgets, "label": getattr(bubble, "message_label", None)})
         self._sync_ai_message_layout()
+        self._scroll_ai_to_bottom()
 
     def _reset_ai_messages_body(self):
         if self.ai_messages_body is None:
@@ -626,7 +823,6 @@ class Overlay:
                 if self.ai_messages_spacer.winfo_reqheight() != spacer_height:
                     self.ai_messages_spacer.configure(height=spacer_height)
                 self.ai_canvas.configure(scrollregion=self.ai_canvas.bbox("all"))
-                self._scroll_ai_to_bottom()
             finally:
                 self.ai_layout_pending = False
 
@@ -650,7 +846,22 @@ class Overlay:
         if label is None or not label.winfo_exists():
             self._render_ai_messages()
             return
-        label.configure(text=text)
+        label.thinking = False
+        bubble = label.master
+        bubble.configure(bg="#1a1a1a", padx=13, pady=9)
+        copy_button = getattr(bubble, "copy_button", None)
+        if copy_button is not None:
+            copy_button.configure(
+                command=lambda value=text: self._copy_chat_message(value),
+                bg="#1a1a1a",
+            )
+            copy_button.pack(anchor="e", pady=(0, 2), before=label)
+        label.configure(
+            text=format_chat_display_text(text),
+            bg="#1a1a1a",
+            fg="#e5e5e5",
+            font=("Segoe UI", AI_REPLY_FONT_SIZE),
+        )
         self._sync_ai_message_layout()
         self._scroll_ai_to_bottom()
 
@@ -658,11 +869,14 @@ class Overlay:
         if self.ai_canvas is not None and self.ai_canvas.winfo_exists():
             self.ai_canvas.after_idle(lambda: self.ai_canvas.yview_moveto(1.0) if self.ai_canvas.winfo_exists() else None)
 
-    def _chat_input(self, parent):
+    def _chat_input(self, parent, use_grid=False):
         box = tk.Frame(parent, bg="#151515", padx=12, pady=9)
-        box.pack(fill="x", side="bottom")
+        if use_grid:
+            box.grid(row=2, column=0, sticky="ew")
+        else:
+            box.pack(fill="x", side="bottom")
         self.ai_attachment_frame = tk.Frame(box, bg="#151515")
-        text = tk.Text(box, height=2, wrap="word", bg="#0b0b0b", fg="#ffffff", insertbackground="#ffffff", relief="flat", padx=12, pady=8, font=("Segoe UI", 12))
+        text = tk.Text(box, height=2, wrap="word", bg="#0b0b0b", fg="#ffffff", insertbackground="#ffffff", relief="flat", padx=8, pady=5, font=("Segoe UI", AI_INPUT_FONT_SIZE))
         self.ai_chat_text_widget = text
         text.pack(fill="x", pady=(0, 7))
         text.focus_set()
@@ -672,8 +886,8 @@ class Overlay:
         text.bind("<Control-Return>", lambda event: self._insert_chat_newline(text))
         actions = tk.Frame(box, bg="#151515")
         actions.pack(fill="x")
-        tk.Button(actions, text="Screenshot", command=self._capture_screen_for_chat, bg="#242424", fg="#dddddd", relief="flat", padx=14, pady=8, font=("Segoe UI", 10)).pack(side="left", padx=(0, 8))
-        tk.Button(actions, text="Send", command=lambda: self._send_ai_chat_from_widget(text), bg="#2563eb", fg="#ffffff", relief="flat", padx=22, pady=8, font=("Segoe UI", 10, "bold")).pack(side="right")
+        tk.Button(actions, text="Screenshot & Markup", command=self._capture_screen_for_chat, bg="#242424", fg="#dddddd", relief="flat", padx=9, pady=5, font=("Segoe UI", 12)).pack(side="left")
+        tk.Button(actions, text="Send", command=lambda: self._send_ai_chat_from_widget(text), bg="#2563eb", fg="#ffffff", relief="flat", padx=16, pady=5, font=("Segoe UI", 12, "bold")).pack(side="right")
         return text
 
     def _handle_chat_enter(self, event, text_widget):
@@ -706,23 +920,22 @@ class Overlay:
             return
         self._open_crop_editor(path, None)
 
-    def _ask_screen_from_widget(self, text_widget):
-        question = text_widget.get("1.0", "end").strip() or "What is on this screen?"
-        screenshot_path = self.pending_screen_path or self.screen_context_path
-        if self.pending_screen_path:
-            self.pending_screen_path = None
-            self._render_pending_attachment()
-        self._ask_screen_question(text_widget, question, screenshot_path)
+    def _capture_screen_from_menu(self):
+        self._show_ai_panel_impl()
+        self.root.after(120, self._capture_screen_for_chat)
 
     def _ask_screen_question(self, text_widget, question, screenshot_path=None):
         text_widget.delete("1.0", "end")
         text_widget.configure(height=2)
         if not screenshot_path:
-            self._capture_screen_for_chat()
-            return
+            try:
+                screenshot_path = self.capture_screen_context()
+            except Exception as exc:
+                self._show_toast_impl(f"Screenshot failed: {exc}", 3000)
+                return
         self.screen_context_path = screenshot_path
         self.ai_messages.append({"role": "user", "text": question, "image_path": screenshot_path, "can_crop": False})
-        pending = {"role": "assistant", "text": "Reading attached screenshot..."}
+        pending = {"role": "assistant", "text": "Reading screenshot", "pending": True}
         self.ai_messages.append(pending)
         self._append_ai_message(self.ai_messages[-2])
         self._append_ai_message(self.ai_messages[-1])
@@ -780,6 +993,7 @@ class Overlay:
 
     def _finish_screen_answer(self, pending, response):
         pending["text"] = response
+        pending.pop("pending", None)
         self._update_last_ai_message(response)
 
     def _screenshot_preview(self, parent, path, message=None):
@@ -810,91 +1024,253 @@ class Overlay:
             return
 
         editor = tk.Toplevel(self.ai_panel or self.root)
-        editor.title("Crop Screenshot")
+        editor.title("Screenshot Markup")
         editor.configure(bg="#101010")
         editor.attributes("-topmost", True)
         editor.resizable(False, False)
 
-        max_width = max(420, min(820, editor.winfo_screenwidth() - 180))
-        max_height = max(260, min(460, editor.winfo_screenheight() - 260))
+        max_width, max_height = screenshot_editor_preview_limits(
+            editor.winfo_screenwidth(),
+            editor.winfo_screenheight(),
+        )
         scale = min(max_width / image.width, max_height / image.height, 1.0)
         display_size = (max(1, int(image.width * scale)), max(1, int(image.height * scale)))
         display_image = image.resize(display_size)
         photo = ImageTk.PhotoImage(display_image)
         editor.photo_ref = photo
-        window_width = display_size[0] + 36
-        window_height = display_size[1] + 96
-        x = max(20, (editor.winfo_screenwidth() - window_width) // 2)
-        y = max(20, (editor.winfo_screenheight() - window_height) // 2)
-        editor.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
-        header = tk.Frame(editor, bg="#101010", padx=18, pady=14)
+        header = tk.Frame(editor, bg="#101010", padx=14, pady=10)
         header.pack(fill="x")
         title = tk.Frame(header, bg="#101010")
         title.pack(side="left", fill="x", expand=True)
-        tk.Label(title, text="Crop screenshot", bg="#101010", fg="#ffffff", font=("Segoe UI", 14, "bold")).pack(anchor="w")
-        tk.Label(title, text="Drag the area you want, then click Done.", bg="#101010", fg="#9ca3af", font=("Segoe UI", 10)).pack(anchor="w", pady=(3, 0))
+        tk.Label(title, text="Screenshot markup", bg="#101010", fg="#ffffff", font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        tk.Label(
+            title,
+            text="Crop if needed, mark a specific area, or place a note. Done copies the result.",
+            bg="#101010",
+            fg="#9ca3af",
+            font=("Segoe UI", 8),
+        ).pack(anchor="w", pady=(1, 0))
+
+        tools = tk.Frame(editor, bg="#171717", padx=14, pady=8)
+        tools.pack(fill="x", padx=14, pady=(0, 8))
+        tool_var = tk.StringVar(value="rectangle")
+        color_var = tk.StringVar(value="#2563eb")
+        note_var = tk.StringVar()
+        annotations = []
+        selection = {"start": None, "end": None, "item": None}
+        active = {"start": None, "item": None, "kind": None}
+        tool_buttons = {}
+        color_buttons = {}
+
+        def refresh_buttons():
+            for name, button in tool_buttons.items():
+                button.configure(bg="#334155" if tool_var.get() == name else "#242424")
+            for color, button in color_buttons.items():
+                button.configure(relief="sunken" if color_var.get() == color else "flat", borderwidth=2 if color_var.get() == color else 0)
+
+        def choose_tool(name):
+            tool_var.set(name)
+            refresh_buttons()
+
+        tk.Label(tools, text="TOOLS", bg="#171717", fg="#9ca3af", font=("Segoe UI", 8, "bold")).pack(side="left", padx=(0, 8))
+        for name, label in (("crop", "Crop"), ("rectangle", "Rectangle"), ("ellipse", "Ellipse"), ("arrow", "Arrow"), ("text", "Text")):
+            button = tk.Button(
+                tools,
+                text=label,
+                command=lambda value=name: choose_tool(value),
+                bg="#242424",
+                fg="#ffffff",
+                activebackground="#334155",
+                activeforeground="#ffffff",
+                relief="flat",
+                padx=9,
+                pady=5,
+                font=("Segoe UI", 8),
+            )
+            button.pack(side="left", padx=(0, 5))
+            tool_buttons[name] = button
+
+        tk.Label(tools, text="COLOR", bg="#171717", fg="#9ca3af", font=("Segoe UI", 8, "bold")).pack(side="left", padx=(10, 7))
+        for color, label in (("#2563eb", "Blue"), ("#ef4444", "Red")):
+            button = tk.Button(
+                tools,
+                text=label,
+                command=lambda value=color: (color_var.set(value), refresh_buttons()),
+                bg=color,
+                fg="#ffffff",
+                activebackground=color,
+                activeforeground="#ffffff",
+                relief="flat",
+                padx=9,
+                pady=5,
+                font=("Segoe UI", 8, "bold"),
+            )
+            button.pack(side="left", padx=(0, 5))
+            color_buttons[color] = button
+
+        note_row = tk.Frame(editor, bg="#101010", padx=14)
+        note_row.pack(fill="x", pady=(0, 8))
+        tk.Label(note_row, text="Note", bg="#101010", fg="#d1d5db", font=("Segoe UI", 8, "bold")).pack(side="left", padx=(0, 7))
+        note_entry = tk.Entry(
+            note_row,
+            textvariable=note_var,
+            bg="#202020",
+            fg="#ffffff",
+            insertbackground="#ffffff",
+            relief="flat",
+            font=("Segoe UI", 9),
+        )
+        note_entry.pack(side="left", fill="x", expand=True, ipady=5)
+        tk.Label(note_row, text="Select Text, then click where the note should appear.", bg="#101010", fg="#737373", font=("Segoe UI", 8)).pack(side="left", padx=(8, 0))
 
         canvas = tk.Canvas(editor, width=display_size[0], height=display_size[1], bg="#050505", highlightthickness=0, cursor="crosshair")
-        canvas.pack(padx=18, pady=(0, 18))
+        canvas.pack(padx=14, pady=(0, 10))
         canvas.create_image(0, 0, anchor="nw", image=photo)
 
-        selection = {
-            "start": (0, 0),
-            "rect": canvas.create_rectangle(2, 2, display_size[0] - 2, display_size[1] - 2, outline="#60a5fa", width=3),
-            "end": (display_size[0], display_size[1]),
-        }
-
-        def start_select(event):
-            selection["start"] = (event.x, event.y)
-            selection["end"] = (event.x, event.y)
-            if selection["rect"] is not None:
-                canvas.delete(selection["rect"])
-            selection["rect"] = canvas.create_rectangle(event.x, event.y, event.x, event.y, outline="#60a5fa", width=3)
-
-        def update_select(event):
-            if selection["start"] is None or selection["rect"] is None:
-                return
-            x = max(0, min(display_size[0], event.x))
-            y = max(0, min(display_size[1], event.y))
-            selection["end"] = (x, y)
-            canvas.coords(selection["rect"], selection["start"][0], selection["start"][1], x, y)
-
-        def finish_crop():
-            if selection["start"] is None or selection["end"] is None:
-                self._show_toast_impl("Drag a crop area first.", 1800)
-                return
-            box = scaled_crop_box(
-                selection["start"][0],
-                selection["start"][1],
-                selection["end"][0],
-                selection["end"][1],
-                scale,
-                image.width,
-                image.height,
+        def clamp_point(event):
+            return (
+                max(0, min(display_size[0], event.x)),
+                max(0, min(display_size[1], event.y)),
             )
-            if box is None:
-                self._show_toast_impl("Crop area is too small.", 1800)
+
+        def start_draw(event):
+            x, y = clamp_point(event)
+            kind = tool_var.get()
+            if kind == "text":
+                note = note_var.get().strip()
+                if not note:
+                    self._show_toast_impl("Type a note first.", 1800)
+                    note_entry.focus_set()
+                    return
+                item = canvas.create_text(x, y, text=note, anchor="nw", fill=color_var.get(), font=("Segoe UI", 14, "bold"))
+                annotations.append(
+                    {
+                        "kind": "text",
+                        "x1": x / scale,
+                        "y1": y / scale,
+                        "text": note,
+                        "color": color_var.get(),
+                        "font_size": max(18, int(20 / scale)),
+                        "canvas_item": item,
+                    }
+                )
+                note_var.set("")
                 return
+            active.update({"start": (x, y), "kind": kind, "item": None})
+            if kind == "crop":
+                if selection["item"] is not None:
+                    canvas.delete(selection["item"])
+                selection.update({"start": (x, y), "end": (x, y)})
+                active["item"] = canvas.create_rectangle(x, y, x, y, outline="#ffffff", width=2, dash=(6, 4))
+                selection["item"] = active["item"]
+            elif kind == "rectangle":
+                active["item"] = canvas.create_rectangle(x, y, x, y, outline=color_var.get(), width=2)
+            elif kind == "ellipse":
+                active["item"] = canvas.create_oval(x, y, x, y, outline=color_var.get(), width=2)
+            elif kind == "arrow":
+                active["item"] = canvas.create_line(
+                    x,
+                    y,
+                    x,
+                    y,
+                    fill=color_var.get(),
+                    width=2,
+                    arrow=tk.LAST,
+                    arrowshape=(12, 14, 5),
+                )
+
+        def update_draw(event):
+            if active["start"] is None or active["item"] is None:
+                return
+            x, y = clamp_point(event)
+            canvas.coords(active["item"], active["start"][0], active["start"][1], x, y)
+            if active["kind"] == "crop":
+                selection["end"] = (x, y)
+
+        def finish_draw(event):
+            if active["start"] is None or active["item"] is None:
+                return
+            x, y = clamp_point(event)
+            start_x, start_y = active["start"]
+            canvas.coords(active["item"], start_x, start_y, x, y)
+            if active["kind"] != "crop":
+                distance = math.hypot(x - start_x, y - start_y)
+                too_small = distance < 8 if active["kind"] == "arrow" else abs(x - start_x) < 5 or abs(y - start_y) < 5
+                if too_small:
+                    canvas.delete(active["item"])
+                else:
+                    annotations.append(
+                        {
+                            "kind": active["kind"],
+                            "x1": start_x / scale,
+                            "y1": start_y / scale,
+                            "x2": x / scale,
+                            "y2": y / scale,
+                            "color": color_var.get(),
+                            "width": max(2, int(2 / scale)),
+                            "canvas_item": active["item"],
+                        }
+                    )
+            active.update({"start": None, "item": None, "kind": None})
+
+        def undo():
+            if annotations:
+                annotation = annotations.pop()
+                canvas.delete(annotation.get("canvas_item"))
+            elif selection["item"] is not None:
+                canvas.delete(selection["item"])
+                selection.update({"start": None, "end": None, "item": None})
+
+        def finish_markup():
+            box = None
+            if selection["start"] is not None and selection["end"] is not None:
+                box = scaled_crop_box(
+                    selection["start"][0],
+                    selection["start"][1],
+                    selection["end"][0],
+                    selection["end"][1],
+                    scale,
+                    image.width,
+                    image.height,
+                )
+                if box is None:
+                    self._show_toast_impl("Crop area is too small.", 1800)
+                    return
+            output = render_screenshot_annotations(image, annotations, box)
             base, _ = os.path.splitext(path)
-            cropped_path = f"{base}-crop-{int(time.time())}.png"
-            image.crop(box).save(cropped_path)
+            output_path = f"{base}-marked-{int(time.time())}.png"
+            output.save(output_path)
+            try:
+                copy_image_to_clipboard(output)
+            except Exception as exc:
+                self._show_toast_impl(f"Saved, but clipboard copy failed: {exc}", 3000)
             if message is None:
-                self._attach_screen_to_input(cropped_path)
+                self._attach_screen_to_input(output_path)
             else:
-                self.screen_context_path = cropped_path
-                message["image_path"] = cropped_path
-                message["text"] = "Crop ready."
+                self.screen_context_path = output_path
+                message["image_path"] = output_path
+                message["text"] = "Screenshot markup ready."
                 self._render_ai_messages()
             editor.destroy()
-            self._show_toast_impl("Screenshot attached.", 1600)
+            self._show_toast_impl("Screenshot copied to clipboard and attached.", 2200)
 
-        tk.Button(header, text="Cancel", command=editor.destroy, bg="#242424", fg="#dddddd", relief="flat", padx=16, pady=8, font=("Segoe UI", 11)).pack(side="right", padx=(8, 0))
-        tk.Button(header, text="Done", command=finish_crop, bg="#2563eb", fg="#ffffff", relief="flat", padx=22, pady=8, font=("Segoe UI", 11, "bold")).pack(side="right")
+        tk.Button(header, text="Cancel", command=editor.destroy, bg="#242424", fg="#dddddd", relief="flat", padx=9, pady=5, font=("Segoe UI", 8)).pack(side="right", padx=(6, 0))
+        tk.Button(header, text="Done & Copy", command=finish_markup, bg="#2563eb", fg="#ffffff", relief="flat", padx=12, pady=5, font=("Segoe UI", 8, "bold")).pack(side="right")
+        tk.Button(header, text="Undo", command=undo, bg="#242424", fg="#dddddd", relief="flat", padx=9, pady=5, font=("Segoe UI", 8)).pack(side="right", padx=(0, 6))
 
-        canvas.bind("<ButtonPress-1>", start_select)
-        canvas.bind("<B1-Motion>", update_select)
-        canvas.bind("<ButtonRelease-1>", update_select)
+        canvas.bind("<ButtonPress-1>", start_draw)
+        canvas.bind("<B1-Motion>", update_draw)
+        canvas.bind("<ButtonRelease-1>", finish_draw)
+        editor.bind("<Control-z>", lambda _event: undo())
+        editor.bind("<Escape>", lambda _event: editor.destroy())
+        refresh_buttons()
+        editor.update_idletasks()
+        window_width = editor.winfo_reqwidth()
+        window_height = editor.winfo_reqheight()
+        x = max(20, (editor.winfo_screenwidth() - window_width) // 2)
+        y = max(20, (editor.winfo_screenheight() - window_height) // 2)
+        editor.geometry(f"{window_width}x{window_height}+{x}+{y}")
         editor.lift()
         try:
             editor.focus_force()
@@ -909,7 +1285,7 @@ class Overlay:
             text="Ask me anything.",
             bg="#101010",
             fg="#ffffff",
-            font=("Segoe UI", 18, "bold"),
+            font=("Segoe UI", 16, "bold"),
             anchor="w",
         ).pack(fill="x", pady=(0, 8))
         tk.Label(
@@ -917,9 +1293,9 @@ class Overlay:
             text="Type below, capture a screenshot, or ask about what is on your screen.",
             bg="#101010",
             fg="#a3a3a3",
-            font=("Segoe UI", 11),
+            font=("Segoe UI", 12),
             anchor="w",
-            wraplength=700,
+            wraplength=430,
             justify="left",
         ).pack(fill="x")
 
@@ -949,26 +1325,80 @@ class Overlay:
         label.pack(fill="x", pady=(18, 8))
         return label
 
-    def _chat_bubble(self, parent, text, role):
+    def _chat_bubble(self, parent, text, role, pending=False):
         row = tk.Frame(parent, bg=parent["bg"])
         row.pack(fill="x", pady=(0, 10))
         align = "e" if role == "user" else "w"
-        bubble_bg = "#2563eb" if role == "user" else "#1a1a1a"
-        bubble_fg = "#ffffff" if role == "user" else "#e5e5e5"
-        bubble = tk.Frame(row, bg=bubble_bg, padx=13, pady=9)
+        is_thinking = pending and role == "assistant"
+        bubble_bg = parent["bg"] if is_thinking else ("#2563eb" if role == "user" else "#1a1a1a")
+        bubble_fg = "#9ca3af" if is_thinking else ("#ffffff" if role == "user" else "#e5e5e5")
+        bubble = tk.Frame(row, bg=bubble_bg, padx=5 if is_thinking else 13, pady=8 if is_thinking else 9)
         bubble.pack(anchor=align, padx=(110, 0) if role == "user" else (0, 110))
+        copy_button = None
+        if role == "assistant":
+            copy_button = tk.Button(
+                bubble,
+                text="⧉",
+                command=lambda value=text: self._copy_chat_message(value),
+                bg=bubble_bg,
+                fg="#a3a3a3",
+                activebackground="#262626",
+                activeforeground="#ffffff",
+                relief="flat",
+                borderwidth=0,
+                padx=4,
+                pady=0,
+                font=("Segoe UI Symbol", 13),
+                cursor="hand2",
+            )
+            if not is_thinking:
+                copy_button.pack(anchor="e", pady=(0, 2))
         label = tk.Label(
             bubble,
-            text=text,
+            text=thinking_display_text(text, 0) if is_thinking else format_chat_display_text(text),
             bg=bubble_bg,
             fg=bubble_fg,
-            font=("Segoe UI", 12),
+            font=("Segoe UI", AI_PENDING_FONT_SIZE, "italic") if is_thinking else ("Segoe UI", AI_REPLY_FONT_SIZE),
             justify="left",
             wraplength=590,
         )
         label.pack()
+        label.thinking = is_thinking
+        label.thinking_base = (text or "Thinking").strip().rstrip(".")
+        if is_thinking:
+            label.after(350, lambda: self._animate_thinking_label(label, 1))
         bubble.message_label = label
+        bubble.copy_button = copy_button
         return bubble
+
+    def _copy_chat_message(self, text):
+        import pyperclip
+
+        pyperclip.copy(format_chat_display_text(text))
+        self._show_toast_impl("Reply copied.", 1400)
+
+    def _animate_thinking_label(self, label, step):
+        try:
+            if not label.winfo_exists() or not getattr(label, "thinking", False):
+                return
+            label.configure(text=thinking_display_text(label.thinking_base, step))
+            label.after(350, lambda: self._animate_thinking_label(label, step + 1))
+        except Exception:
+            return
+
+    def _scroll_ai_with_wheel(self, event):
+        if self.ai_canvas is None or not self.ai_canvas.winfo_exists():
+            return
+        if getattr(event, "num", None) == 4:
+            steps = -3
+        elif getattr(event, "num", None) == 5:
+            steps = 3
+        else:
+            delta = getattr(event, "delta", 0)
+            if not delta:
+                return
+            steps = -max(1, abs(delta) // 120) if delta > 0 else max(1, abs(delta) // 120)
+        self.ai_canvas.yview_scroll(steps, "units")
 
     def _copy_text_widget(self, text_widget):
         import pyperclip
@@ -1025,44 +1455,62 @@ class Overlay:
         self.canvas.create_oval(CX-R+4, CY-R+4, CX+R-4, CY+R-4, fill="", outline="#2d2d2d", width=1)
         self.state_label = self.canvas.create_text(CX, CY+R+22, text="", fill="#d4d4d4", font=("Segoe UI", 9, "bold"))
 
+    def _reset_logo_bars(self):
+        for index, (bar, rectangle) in enumerate(zip(BLDS, self.bar_rects)):
+            x = CX + bar["dx"]
+            self.canvas.coords(rectangle, x, FLOOR-self.idle_heights[index], x+bar["w"], FLOOR)
+            self.canvas.itemconfig(rectangle, fill=SHADES[index])
+
+    def _enforce_orb_size(self, event):
+        """Keep the transparent orb canvas identical in every app state."""
+        if self.orb_size_clamping or event.width == ORB_W and event.height == ORB_H:
+            return
+        self.orb_size_clamping = True
+        x, y = self.root.winfo_x(), self.root.winfo_y()
+        self.root.geometry(f"{ORB_W}x{ORB_H}+{x}+{y}")
+        self.root.after_idle(lambda: setattr(self, "orb_size_clamping", False))
+
     def _update_canvas(self, state):
-        fills = {"idle": "#111111", "recording": "#1b1b1b", "cleaning": "#202020", "thinking": "#202020", "typing": "#181818", "done": "#151515"}
+        fills = {
+            "idle": "#111111",
+            "recording": "#1b1b1b",
+            "cleaning": "#202020",
+            "thinking": "#202020",
+            "typing": "#181818",
+            "done": "#151515",
+        }
         self.canvas.itemconfig(self.orb_body, fill=fills.get(state, "#111111"))
-        if state in ("cleaning", "thinking"):
-            if self.previous_state not in ("cleaning", "thinking"):
-                for rectangle in self.bar_rects:
-                    self.canvas.itemconfig(rectangle, fill="")
-        elif state == "recording":
+        if state in ("recording", "thinking", "cleaning"):
             for index, (bar, rectangle) in enumerate(zip(BLDS, self.bar_rects)):
-                wave = math.sin(self.anim_t * bar["speed"] + bar["phase"]) * (bar["baseH"] * 0.42)
-                height = self._clamp_height(bar["dx"], bar["w"], int(bar["baseH"] + wave))
+                height = self._clamp_height(
+                    bar["dx"],
+                    bar["w"],
+                    animated_bar_height(bar, self.anim_t, state),
+                )
                 x = CX + bar["dx"]
                 self.canvas.coords(rectangle, x, FLOOR-height, x+bar["w"], FLOOR)
                 self.canvas.itemconfig(rectangle, fill=SHADES[index])
-        elif self.previous_state not in ("idle", "done"):
-            for index, (bar, rectangle) in enumerate(zip(BLDS, self.bar_rects)):
-                x = CX + bar["dx"]
-                self.canvas.coords(rectangle, x, FLOOR-self.idle_heights[index], x+bar["w"], FLOOR)
-                self.canvas.itemconfig(rectangle, fill=SHADES[index])
+        else:
+            self._reset_logo_bars()
 
-        pulse_styles = {
-            "recording": ("#ffffff", 2),
-            "cleaning": ("#d4d4d4", 2),
-            "thinking": ("#e5e5e5", 2),
-            "typing": ("#f5f5f5", 2),
-            "done": ("#d4d4d4", 2),
-        }
-        color, width = pulse_styles.get(state, ("#2a2a2a", 1))
+        radius, color, width = pulse_ring_style(state, self.anim_t)
         self.canvas.coords(
             self.pulse_ring,
-            CX-OUTER_RING_RADIUS,
-            CY-OUTER_RING_RADIUS,
-            CX+OUTER_RING_RADIUS,
-            CY+OUTER_RING_RADIUS,
+            CX-radius,
+            CY-radius,
+            CX+radius,
+            CY+radius,
         )
         self.canvas.itemconfig(self.pulse_ring, outline=color, width=width)
 
-        labels = {"idle": "", "recording": "REC", "cleaning": "CLEAN", "thinking": "THINK", "typing": "TYPE", "done": "DONE"}
+        labels = {
+            "idle": "",
+            "recording": "REC",
+            "cleaning": "CLEAN",
+            "thinking": "THINK",
+            "typing": "TYPE",
+            "done": "DONE",
+        }
         self.canvas.itemconfig(self.state_label, text=labels.get(state, ""))
         self.previous_state = state
 
@@ -1098,11 +1546,14 @@ class Overlay:
         menu.add_command(label="Diagnostics...", command=self.open_diagnostics)
         menu.add_command(label="Setup...", command=self.open_onboarding)
         menu.add_command(label="VoiceFlow AI", command=self.open_ai_panel)
+        menu.add_command(label="Screenshot & Markup", command=self._capture_screen_from_menu)
+        menu.add_command(label="Conversation — coming soon", state="disabled")
         menu.add_separator()
         startup_var = tk.BooleanVar(value=self.is_startup_enabled())
         menu.add_checkbutton(label="Start VoiceFlow with Windows", variable=startup_var, command=self.toggle_startup)
         menu.add_separator()
         menu.add_command(label="Change API Key...", command=self.change_api_key)
+        menu.add_command(label="OpenAI Realtime API Key...", command=self.change_openai_realtime_api_key)
         menu.add_command(label="Reconnect AI", command=self._reconnect_ai_from_menu)
         menu.add_separator()
         menu.add_command(label="Open log file", command=self.open_log)
