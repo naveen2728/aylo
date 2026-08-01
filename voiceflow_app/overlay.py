@@ -14,7 +14,9 @@ import webbrowser
 from urllib.parse import quote_plus
 
 
-ORB_W, ORB_H, CX, CY, R, FLOOR = 148, 168, 74, 76, 54, 102
+# Keep the transparent window fixed while leaving a little more breathing room
+# around the visible orb artwork on high-DPI displays.
+ORB_W, ORB_H, CX, CY, R, FLOOR = 148, 168, 74, 76, 50, 102
 AI_PANEL_W = 900
 AI_PANEL_H = 780
 AI_PANEL_MARGIN = 20

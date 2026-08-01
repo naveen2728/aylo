@@ -12,7 +12,7 @@ import sys
 import zipfile
 
 
-VERSION = "3.1.0"
+VERSION = "3.1.1"
 ROOT = Path(__file__).resolve().parent
 DIST_EXE = ROOT / "dist" / "VoiceFlow.exe"
 RELEASE_ROOT = ROOT / "release"

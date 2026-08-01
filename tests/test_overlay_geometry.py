@@ -68,6 +68,10 @@ class OverlayGeometryTests(unittest.TestCase):
     def test_orb_window_dimensions_are_fixed(self):
         self.assertEqual((ORB_W, ORB_H), (148, 168))
 
+    def test_visible_orb_artwork_is_compact_inside_fixed_window(self):
+        self.assertEqual(R, 50)
+        self.assertEqual(OUTER_RING_RADIUS, 58)
+
     def test_waveform_moves_while_speaking_and_thinking(self):
         bar = BLDS[1]
         self.assertNotEqual(

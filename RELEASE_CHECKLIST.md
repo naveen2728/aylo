@@ -17,7 +17,7 @@ Setup 6 is available.
 Install Inno Setup 6, then rerun `release.py`. The installer will be written to:
 
 ```text
-release\VoiceFlow-3.1.0-Setup.exe
+release\VoiceFlow-3.1.1-Setup.exe
 ```
 
 ## Optional Code Signing

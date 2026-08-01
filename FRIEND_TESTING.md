@@ -3,7 +3,7 @@
 Share:
 
 ```text
-release\VoiceFlow-3.1.0-Setup.exe
+release\VoiceFlow-3.1.1-Setup.exe
 ```
 
 ## What Friends Should Expect

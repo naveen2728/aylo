@@ -15,7 +15,7 @@ import glob
 import subprocess
 import importlib.util
 
-VERSION = "3.1.0"
+VERSION = "3.1.1"
 
 # =========================
 # PATHS
@@ -143,8 +143,8 @@ print("Step 4: Creating version info...")
 
 version_txt = f"""VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(3, 1, 0, 0),
-    prodvers=(3, 1, 0, 0),
+    filevers=(3, 1, 1, 0),
+    prodvers=(3, 1, 1, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,

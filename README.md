@@ -22,6 +22,8 @@ The project is usable but still being prepared for a wider public release. APIs 
 
 ## What's new in 3.1
 
+Maintenance update 3.1.1 keeps the orb window fixed at 148×168 while making the visible circle and ring slightly more compact on high-DPI displays.
+
 - Mouse side-button push-to-talk: hold Back to dictate or Forward to run an AI command, then release to process.
 - Screenshot markup with crop, arrows, rectangles, ellipses, red/blue highlights, text notes, and clipboard copy.
 - Larger, clearer screenshot and Ask AI interfaces with one-click reply copying.
