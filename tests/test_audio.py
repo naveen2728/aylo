@@ -38,6 +38,19 @@ class AudioTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "microphone device 4"):
                 open_input_stream(state)
 
+    def test_default_microphone_falls_back_when_wasapi_is_invalidated(self):
+        state = RuntimeState(AppSettings())
+        stream = unittest.mock.Mock()
+        with patch("voiceflow_app.audio._wasapi_default_input_device", return_value=10), patch(
+            "voiceflow_app.audio.sd.default.device", [1, 3]
+        ), patch("voiceflow_app.audio.sd.check_input_settings"), patch(
+            "voiceflow_app.audio.sd.InputStream", side_effect=[OSError("WASAPI invalidated"), stream]
+        ) as input_stream:
+            self.assertIs(open_input_stream(state), stream)
+        self.assertEqual(input_stream.call_args_list[0].kwargs["device"], 10)
+        self.assertEqual(input_stream.call_args_list[1].kwargs["device"], 1)
+        stream.start.assert_called_once_with()
+
     def test_stream_uses_low_latency_native_wasapi_rate(self):
         state = RuntimeState(AppSettings())
         stream = unittest.mock.Mock()
