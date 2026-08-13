@@ -34,6 +34,7 @@ GMAIL_CLIENT_SECRET_FILE = os.path.join(appdata_dir(), "google_oauth_client.json
 LEGACY_ENV_FILE = os.path.join(legacy_appdata_dir(), "config.env")
 LEGACY_SETTINGS_FILE = os.path.join(legacy_appdata_dir(), "config.json")
 LEGACY_HISTORY_FILE = os.path.join(legacy_appdata_dir(), "history.json")
+LEGACY_KNOWLEDGE_DIR = os.path.join(legacy_appdata_dir(), "knowledge")
 LEGACY_CREDENTIAL_TARGET = "VoiceFlow/GroqApiKey"
 LEGACY_IMAGE_CREDENTIAL_TARGET = "VoiceFlow/ImageApiKey"
 LEGACY_OPENAI_REALTIME_CREDENTIAL_TARGET = "VoiceFlow/OpenAIRealtimeApiKey"
@@ -51,6 +52,7 @@ def migrate_legacy_appdata():
         ),
     ):
         _copy_legacy_file(legacy_path, destination_path)
+    _copy_legacy_directory(LEGACY_KNOWLEDGE_DIR, KNOWLEDGE_DIR)
 
 
 @dataclass
@@ -96,6 +98,18 @@ def _copy_legacy_file(legacy_path, destination_path):
     try:
         os.makedirs(os.path.dirname(destination_path), exist_ok=True)
         shutil.copy2(legacy_path, destination_path)
+        return True
+    except OSError:
+        return False
+
+
+def _copy_legacy_directory(legacy_path, destination_path):
+    """Copy a legacy data directory once, retaining the original directory."""
+    if os.path.exists(destination_path) or not os.path.isdir(legacy_path):
+        return False
+    try:
+        os.makedirs(os.path.dirname(destination_path), exist_ok=True)
+        shutil.copytree(legacy_path, destination_path)
         return True
     except OSError:
         return False
