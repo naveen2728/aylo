@@ -43,7 +43,7 @@ The source code is free and open source. Cloud providers may charge for API usag
 ## Run from source
 
 ```powershell
-git clone https://github.com/naveen2728/local-voice-desktop.git
+git clone https://github.com/naveen2728/aylo.git
 cd local-voice-desktop
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1

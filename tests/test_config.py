@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from aylo_app import config
@@ -106,6 +107,49 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(settings.first_run_complete)
             self.assertTrue(os.path.exists(legacy_settings))
             self.assertTrue(os.path.exists(new_settings))
+
+    def test_migrates_history_oauth_and_knowledge_without_deleting_originals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            legacy_dir = os.path.join(directory, "VoiceFlow")
+            aylo_dir = os.path.join(directory, "Aylo")
+            legacy_history = os.path.join(legacy_dir, "history.json")
+            legacy_oauth = os.path.join(legacy_dir, "google_oauth_client.json")
+            legacy_knowledge = os.path.join(legacy_dir, "knowledge")
+            new_history = os.path.join(aylo_dir, "history.json")
+            new_oauth = os.path.join(aylo_dir, "google_oauth_client.json")
+            new_knowledge = os.path.join(aylo_dir, "knowledge")
+            os.makedirs(legacy_knowledge)
+            with open(legacy_history, "w", encoding="utf-8") as handle:
+                handle.write("[]")
+            with open(legacy_oauth, "w", encoding="utf-8") as handle:
+                handle.write('{"client_id": "legacy"}')
+            with open(os.path.join(legacy_knowledge, "gmail.sqlite3"), "wb") as handle:
+                handle.write(b"legacy-index")
+            with patch.object(config, "LEGACY_HISTORY_FILE", legacy_history), patch.object(
+                config, "HISTORY_FILE", new_history
+            ), patch.object(config, "GMAIL_CLIENT_SECRET_FILE", new_oauth), patch.object(
+                config, "LEGACY_KNOWLEDGE_DIR", legacy_knowledge
+            ), patch.object(config, "KNOWLEDGE_DIR", new_knowledge):
+                config.migrate_legacy_appdata()
+            self.assertTrue(os.path.exists(legacy_history))
+            self.assertTrue(os.path.exists(legacy_oauth))
+            self.assertTrue(os.path.exists(os.path.join(legacy_knowledge, "gmail.sqlite3")))
+            self.assertTrue(os.path.exists(new_history))
+            self.assertTrue(os.path.exists(new_oauth))
+            self.assertEqual(Path(new_knowledge, "gmail.sqlite3").read_bytes(), b"legacy-index")
+
+    def test_does_not_overwrite_existing_aylo_knowledge_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            legacy_dir = os.path.join(directory, "VoiceFlow", "knowledge")
+            aylo_dir = os.path.join(directory, "Aylo", "knowledge")
+            os.makedirs(legacy_dir)
+            os.makedirs(aylo_dir)
+            with open(os.path.join(legacy_dir, "gmail.sqlite3"), "wb") as handle:
+                handle.write(b"legacy-index")
+            with open(os.path.join(aylo_dir, "gmail.sqlite3"), "wb") as handle:
+                handle.write(b"current-index")
+            self.assertFalse(config._copy_legacy_directory(legacy_dir, aylo_dir))
+            self.assertEqual(Path(aylo_dir, "gmail.sqlite3").read_bytes(), b"current-index")
 
     def test_migrates_voiceflow_credential_without_deleting_old_target(self):
         with patch("aylo_app.config.read_credential", side_effect=[None, "old-secret"]), patch(
