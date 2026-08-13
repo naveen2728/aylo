@@ -1,6 +1,6 @@
 import unittest
 
-from voiceflow_app.web_shortcuts import detect_open_shortcut
+from aylo_app.web_shortcuts import detect_open_shortcut
 
 
 class WebShortcutTests(unittest.TestCase):

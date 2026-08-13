@@ -1,16 +1,16 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from voiceflow_app.app import VoiceFlowApp
-from voiceflow_app.config import AppSettings
-from voiceflow_app.state import STATE_RECORDING
-from voiceflow_app.transcription import AudioQualityError
+from aylo_app.app import AyloApp
+from aylo_app.config import AppSettings
+from aylo_app.state import STATE_RECORDING
+from aylo_app.transcription import AudioQualityError
 
 
 class AppMicrophoneRecoveryTests(unittest.TestCase):
     def make_app(self):
-        with patch("voiceflow_app.app.load_settings", return_value=AppSettings()), patch("voiceflow_app.app.HistoryStore"):
-            app = VoiceFlowApp()
+        with patch("aylo_app.app.load_settings", return_value=AppSettings()), patch("aylo_app.app.HistoryStore"):
+            app = AyloApp()
         app.show_toast = Mock()
         app.set_orb = Mock()
         app.log_error = Mock()
@@ -21,7 +21,7 @@ class AppMicrophoneRecoveryTests(unittest.TestCase):
         app.state.stream = Mock(active=True)
         app.state.last_audio_callback_at = 5.0
         app._refresh_microphone_stream = Mock(return_value=True)
-        with patch("voiceflow_app.app.time.monotonic", return_value=10.0), patch("voiceflow_app.app.threading.Timer"):
+        with patch("aylo_app.app.time.monotonic", return_value=10.0), patch("aylo_app.app.threading.Timer"):
             app.start_recording()
         app._refresh_microphone_stream.assert_called_once_with("stale before recording")
         self.assertEqual(app.state.recording_state, STATE_RECORDING)
@@ -31,7 +31,7 @@ class AppMicrophoneRecoveryTests(unittest.TestCase):
         app.state.stream = Mock(active=True)
         app.state.last_audio_callback_at = 9.5
         app._refresh_microphone_stream = Mock(return_value=True)
-        with patch("voiceflow_app.app.time.monotonic", return_value=10.0), patch("voiceflow_app.app.threading.Timer"):
+        with patch("aylo_app.app.time.monotonic", return_value=10.0), patch("aylo_app.app.threading.Timer"):
             app.start_recording()
         app._refresh_microphone_stream.assert_not_called()
 
@@ -49,8 +49,8 @@ class AppMicrophoneRecoveryTests(unittest.TestCase):
         app.state.recording_prebuffer_frames = 17
         app.state.audio_frames = [object()] * 30
         timer = Mock()
-        with patch("voiceflow_app.app.time.monotonic", return_value=10.0), patch(
-            "voiceflow_app.app.threading.Timer", return_value=timer
+        with patch("aylo_app.app.time.monotonic", return_value=10.0), patch(
+            "aylo_app.app.threading.Timer", return_value=timer
         ):
             app.stop_and_process()
         self.assertEqual(app.state.recording_state, STATE_RECORDING)
@@ -66,7 +66,7 @@ class AppMicrophoneRecoveryTests(unittest.TestCase):
         app.state.input_samplerate = 48000
         app.state.input_blocksize = 960
         app._refresh_microphone_stream = Mock(return_value=True)
-        with patch("voiceflow_app.app.time.monotonic", return_value=10.0):
+        with patch("aylo_app.app.time.monotonic", return_value=10.0):
             app.stop_and_process()
         app._refresh_microphone_stream.assert_called_once_with("recording stream stalled")
         app.show_toast.assert_called_once_with("Microphone reconnected. Hold Right Shift and speak again.")
@@ -76,8 +76,8 @@ class AppMicrophoneRecoveryTests(unittest.TestCase):
         old_stream = Mock()
         replacement = Mock()
         app.state.stream = old_stream
-        with patch("voiceflow_app.app.close_input_stream") as close_stream, patch(
-            "voiceflow_app.app.open_input_stream", return_value=replacement
+        with patch("aylo_app.app.close_input_stream") as close_stream, patch(
+            "aylo_app.app.open_input_stream", return_value=replacement
         ) as open_stream:
             self.assertTrue(app._refresh_microphone_stream("test"))
         close_stream.assert_called_once_with(old_stream)
@@ -88,7 +88,7 @@ class AppMicrophoneRecoveryTests(unittest.TestCase):
         app = self.make_app()
         app.state.settings.silence_rms_threshold = 0.0008
         with patch(
-            "voiceflow_app.app.transcribe_frames",
+            "aylo_app.app.transcribe_frames",
             side_effect=[AudioQualityError("quiet", "silence"), "quiet speech recognized"],
         ) as transcribe:
             result = app._transcribe([object()])

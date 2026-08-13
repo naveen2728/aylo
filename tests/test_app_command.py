@@ -1,10 +1,10 @@
 import unittest
 from unittest.mock import Mock, call, patch
 
-from voiceflow_app.app import VoiceFlowApp, enable_dpi_awareness
-from voiceflow_app.ai_client import GenerationError
-from voiceflow_app.config import AppSettings
-from voiceflow_app.state import STATE_IDLE, STATE_RECORDING
+from aylo_app.app import AyloApp, enable_dpi_awareness
+from aylo_app.ai_client import GenerationError
+from aylo_app.config import AppSettings
+from aylo_app.state import STATE_IDLE, STATE_RECORDING
 
 
 class AppCommandTests(unittest.TestCase):
@@ -12,8 +12,8 @@ class AppCommandTests(unittest.TestCase):
         enable_dpi_awareness()
 
     def make_app(self):
-        with patch("voiceflow_app.app.load_settings", return_value=AppSettings(ai_features_enabled=True)), patch("voiceflow_app.app.HistoryStore"):
-            app = VoiceFlowApp()
+        with patch("aylo_app.app.load_settings", return_value=AppSettings(ai_features_enabled=True)), patch("aylo_app.app.HistoryStore"):
+            app = AyloApp()
         app.state.client = object()
         app.state.clipboard_snapshot = "def old():\n    return 1"
         app.show_toast = Mock()
@@ -31,7 +31,7 @@ class AppCommandTests(unittest.TestCase):
 
     def test_shift_command_uses_clipboard_for_natural_it_reference(self):
         app = self.make_app()
-        with patch("pyperclip.paste", return_value="def old():\n    return 1"), patch("pyperclip.copy") as copy, patch("pyautogui.hotkey"), patch("voiceflow_app.app.ai_client.generate", return_value="def old():\n    return 2") as generate, patch("voiceflow_app.app.time.sleep"):
+        with patch("pyperclip.paste", return_value="def old():\n    return 1"), patch("pyperclip.copy") as copy, patch("pyautogui.hotkey"), patch("aylo_app.app.ai_client.generate", return_value="def old():\n    return 2") as generate, patch("aylo_app.app.time.sleep"):
             app._process_command([])
         prompt = generate.call_args.args[1]
         self.assertIn("CLIPBOARD CONTENT", prompt)
@@ -50,14 +50,14 @@ class AppCommandTests(unittest.TestCase):
     def test_shift_command_rejects_more_than_100_clipboard_lines(self):
         app = self.make_app()
         app.state.clipboard_snapshot = "\n".join(f"line {number}" for number in range(101))
-        with patch("voiceflow_app.app.ai_client.generate") as generate:
+        with patch("aylo_app.app.ai_client.generate") as generate:
             app._process_command([])
         generate.assert_not_called()
         app.show_toast.assert_any_call("Copied content is 101 lines. Copy 100 lines or fewer and try again.")
 
     def test_shift_command_surfaces_friendly_ai_error(self):
         app = self.make_app()
-        with patch("voiceflow_app.app.ai_client.generate", side_effect=GenerationError("Groq API key is invalid. Update it from the context menu.")), patch("pyperclip.copy") as copy:
+        with patch("aylo_app.app.ai_client.generate", side_effect=GenerationError("Groq API key is invalid. Update it from the context menu.")), patch("pyperclip.copy") as copy:
             app._process_command([])
         copy.assert_not_called()
         app.show_toast.assert_any_call("Groq API key is invalid. Update it from the context menu.")
@@ -66,11 +66,11 @@ class AppCommandTests(unittest.TestCase):
         app = self.make_app()
         app.state.client = None
         client = object()
-        with patch("voiceflow_app.app.load_api_key", return_value="key"), patch(
-            "voiceflow_app.app.ai_client.connect", return_value=client
-        ) as connect, patch("voiceflow_app.app.ai_client.generate", return_value="done") as generate, patch(
+        with patch("aylo_app.app.load_api_key", return_value="key"), patch(
+            "aylo_app.app.ai_client.connect", return_value=client
+        ) as connect, patch("aylo_app.app.ai_client.generate", return_value="done") as generate, patch(
             "pyperclip.copy"
-        ), patch("pyautogui.hotkey"), patch("voiceflow_app.app.time.sleep"):
+        ), patch("pyautogui.hotkey"), patch("aylo_app.app.time.sleep"):
             app._process_command([])
         connect.assert_called_once_with()
         self.assertIs(app.state.client, client)
@@ -81,7 +81,7 @@ class AppCommandTests(unittest.TestCase):
         app = self.make_app()
         app._transcribe = Mock(return_value="open youtube")
         app.open_web_shortcut = Mock()
-        with patch("voiceflow_app.app.ai_client.cleanup") as cleanup, patch("pyperclip.copy") as copy:
+        with patch("aylo_app.app.ai_client.cleanup") as cleanup, patch("pyperclip.copy") as copy:
             app._process_dictation([], "prompt")
         app.open_web_shortcut.assert_called_once_with("https://www.youtube.com/")
         cleanup.assert_not_called()
@@ -91,7 +91,7 @@ class AppCommandTests(unittest.TestCase):
         app = self.make_app()
         app._transcribe = Mock(return_value="plain local dictation")
         app._paste_text_preserving_clipboard = Mock()
-        with patch("voiceflow_app.app.ai_client.cleanup") as cleanup:
+        with patch("aylo_app.app.ai_client.cleanup") as cleanup:
             app._process_dictation([], "prompt")
         cleanup.assert_not_called()
         app._paste_text_preserving_clipboard.assert_called_once_with("plain local dictation", release_keys=("shift",))
@@ -99,8 +99,8 @@ class AppCommandTests(unittest.TestCase):
     def test_voice_chat_speaks_ai_response_without_pasting(self):
         app = self.make_app()
         app._transcribe = Mock(return_value="tell me a tiny joke")
-        with patch("voiceflow_app.app.ai_client.chat", return_value="A tiny joke."), patch(
-            "voiceflow_app.app.speak_text"
+        with patch("aylo_app.app.ai_client.chat", return_value="A tiny joke."), patch(
+            "aylo_app.app.speak_text"
         ) as speak, patch("pyperclip.copy") as copy, patch("pyautogui.hotkey") as hotkey:
             app._process_voice_chat([])
         speak.assert_called_once_with("A tiny joke.")
@@ -114,8 +114,8 @@ class AppCommandTests(unittest.TestCase):
 
     def test_start_voice_chat_starts_realtime_agent(self):
         app = self.make_app()
-        with patch("voiceflow_app.app.load_openai_realtime_api_key", return_value="openai-key"), patch(
-            "voiceflow_app.app.RealtimeVoiceAgent"
+        with patch("aylo_app.app.load_openai_realtime_api_key", return_value="openai-key"), patch(
+            "aylo_app.app.RealtimeVoiceAgent"
         ) as agent_class:
             app.start_voice_chat()
         self.assertTrue(app.voice_chat_active)
@@ -127,8 +127,8 @@ class AppCommandTests(unittest.TestCase):
     def test_start_voice_chat_prompts_for_missing_realtime_key(self):
         app = self.make_app()
         app.change_openai_realtime_api_key = Mock()
-        with patch("voiceflow_app.app.load_openai_realtime_api_key", side_effect=[None, None]), patch(
-            "voiceflow_app.app.RealtimeVoiceAgent"
+        with patch("aylo_app.app.load_openai_realtime_api_key", side_effect=[None, None]), patch(
+            "aylo_app.app.RealtimeVoiceAgent"
         ) as agent_class:
             app.start_voice_chat()
         self.assertFalse(app.voice_chat_active)
@@ -139,7 +139,7 @@ class AppCommandTests(unittest.TestCase):
     def test_start_voice_chat_rejects_current_recording(self):
         app = self.make_app()
         app.state.recording_state = STATE_RECORDING
-        with patch("voiceflow_app.app.RealtimeVoiceAgent") as agent_class:
+        with patch("aylo_app.app.RealtimeVoiceAgent") as agent_class:
             app.start_voice_chat()
         self.assertFalse(app.voice_chat_active)
         agent_class.assert_not_called()

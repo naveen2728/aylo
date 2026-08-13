@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from voiceflow_app.gmail_assistant import answer_gmail_question, is_gmail_question, is_open_gmail_command
-from voiceflow_app.gmail_index import GmailIndex, GmailMessage
+from aylo_app.gmail_assistant import answer_gmail_question, is_gmail_question, is_open_gmail_command
+from aylo_app.gmail_index import GmailIndex, GmailMessage
 
 
 class GmailAssistantTests(unittest.TestCase):
@@ -70,7 +70,7 @@ class GmailAssistantTests(unittest.TestCase):
                     )
                 ]
             )
-            with patch("voiceflow_app.ai_client.generate", return_value="AI summary") as generate:
+            with patch("aylo_app.ai_client.generate", return_value="AI summary") as generate:
                 answer = answer_gmail_question("Any important emails?", ai_client=Mock(), index=index)
             self.assertEqual(answer, "AI summary")
             self.assertIn("EMAIL SNIPPETS", generate.call_args.args[1])

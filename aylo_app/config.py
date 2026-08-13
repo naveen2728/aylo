@@ -1,26 +1,56 @@
 from dataclasses import asdict, dataclass, fields
 import json
 import os
+import shutil
 import sys
+
+
+APP_NAME = "Aylo"
+LEGACY_APP_NAME = "VoiceFlow"
 
 
 def appdata_dir():
     base = os.environ.get("APPDATA") or os.path.expanduser("~")
-    path = os.path.join(base, "VoiceFlow")
+    path = os.path.join(base, APP_NAME)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def legacy_appdata_dir():
+    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(base, LEGACY_APP_NAME)
 
 
 ENV_FILE = os.path.join(appdata_dir(), "config.env")
 SETTINGS_FILE = os.path.join(appdata_dir(), "config.json")
 HISTORY_FILE = os.path.join(appdata_dir(), "history.json")
 ERROR_LOG = os.path.join(appdata_dir(), "error.log")
-CREDENTIAL_TARGET = "VoiceFlow/GroqApiKey"
-IMAGE_CREDENTIAL_TARGET = "VoiceFlow/ImageApiKey"
-OPENAI_REALTIME_CREDENTIAL_TARGET = "VoiceFlow/OpenAIRealtimeApiKey"
-GMAIL_TOKEN_TARGET = "VoiceFlow/GmailOAuthToken"
+CREDENTIAL_TARGET = "Aylo/GroqApiKey"
+IMAGE_CREDENTIAL_TARGET = "Aylo/ImageApiKey"
+OPENAI_REALTIME_CREDENTIAL_TARGET = "Aylo/OpenAIRealtimeApiKey"
+GMAIL_TOKEN_TARGET = "Aylo/GmailOAuthToken"
 KNOWLEDGE_DIR = os.path.join(appdata_dir(), "knowledge")
 GMAIL_CLIENT_SECRET_FILE = os.path.join(appdata_dir(), "google_oauth_client.json")
+LEGACY_ENV_FILE = os.path.join(legacy_appdata_dir(), "config.env")
+LEGACY_SETTINGS_FILE = os.path.join(legacy_appdata_dir(), "config.json")
+LEGACY_HISTORY_FILE = os.path.join(legacy_appdata_dir(), "history.json")
+LEGACY_CREDENTIAL_TARGET = "VoiceFlow/GroqApiKey"
+LEGACY_IMAGE_CREDENTIAL_TARGET = "VoiceFlow/ImageApiKey"
+LEGACY_OPENAI_REALTIME_CREDENTIAL_TARGET = "VoiceFlow/OpenAIRealtimeApiKey"
+LEGACY_GMAIL_TOKEN_TARGET = "VoiceFlow/GmailOAuthToken"
+
+
+def migrate_legacy_appdata():
+    """Copy user-owned VoiceFlow files into Aylo without removing the originals."""
+    for legacy_path, destination_path in (
+        (LEGACY_SETTINGS_FILE, SETTINGS_FILE),
+        (LEGACY_HISTORY_FILE, HISTORY_FILE),
+        (
+            os.path.join(legacy_appdata_dir(), "google_oauth_client.json"),
+            GMAIL_CLIENT_SECRET_FILE,
+        ),
+    ):
+        _copy_legacy_file(legacy_path, destination_path)
 
 
 @dataclass
@@ -38,6 +68,8 @@ class AppSettings:
 
 
 def load_settings(path=SETTINGS_FILE):
+    if path == SETTINGS_FILE:
+        migrate_legacy_appdata()
     settings = AppSettings()
     if os.path.exists(path):
         try:
@@ -52,6 +84,21 @@ def load_settings(path=SETTINGS_FILE):
     settings = _validated_settings(settings)
     save_settings(settings, path)
     return settings
+
+
+def _copy_legacy_file(legacy_path, destination_path):
+    """Copy old VoiceFlow data only after the new Aylo destination is writable.
+
+    Legacy data remains untouched so users can safely roll back if needed.
+    """
+    if os.path.exists(destination_path) or not os.path.isfile(legacy_path):
+        return False
+    try:
+        os.makedirs(os.path.dirname(destination_path), exist_ok=True)
+        shutil.copy2(legacy_path, destination_path)
+        return True
+    except OSError:
+        return False
 
 
 def save_settings(settings, path=SETTINGS_FILE):
@@ -98,7 +145,7 @@ def _validated_settings(settings):
     return settings
 
 
-def _load_legacy_api_key(path=ENV_FILE):
+def _load_legacy_api_key(path):
     if not os.path.exists(path):
         return None
     with open(path, "r", encoding="utf-8") as handle:
@@ -117,6 +164,16 @@ def _read_credential():
 
 def _write_credential(key):
     write_credential(CREDENTIAL_TARGET, key)
+
+
+def _migrate_credential(current_target, legacy_target):
+    key = read_credential(current_target)
+    if key:
+        return key
+    key = read_credential(legacy_target)
+    if key:
+        write_credential(current_target, key)
+    return key
 
 
 def read_credential(target_name):
@@ -144,7 +201,7 @@ def write_credential(target_name, value):
             "TargetName": target_name,
             "CredentialBlob": value,
             "Persist": win32cred.CRED_PERSIST_LOCAL_MACHINE,
-            "UserName": "VoiceFlow",
+            "UserName": APP_NAME,
         },
         0,
     )
@@ -163,15 +220,15 @@ def delete_credential(target_name):
 def load_api_key(path=ENV_FILE):
     if os.environ.get("GROQ_API_KEY"):
         return os.environ["GROQ_API_KEY"]
-    key = _read_credential()
+    key = _migrate_credential(CREDENTIAL_TARGET, LEGACY_CREDENTIAL_TARGET)
     if not key:
         key = _load_legacy_api_key(path)
         if key:
             _write_credential(key)
-            try:
-                os.remove(path)
-            except FileNotFoundError:
-                pass
+    if not key and path == ENV_FILE:
+        key = _load_legacy_api_key(LEGACY_ENV_FILE)
+        if key:
+            _write_credential(key)
     if key:
         os.environ["GROQ_API_KEY"] = key
     return key
@@ -179,17 +236,19 @@ def load_api_key(path=ENV_FILE):
 
 def save_api_key(key, legacy_path=ENV_FILE):
     _write_credential(key)
-    try:
-        os.remove(legacy_path)
-    except FileNotFoundError:
-        pass
+    # VoiceFlow data is deliberately retained after migration.
+    if legacy_path != LEGACY_ENV_FILE:
+        try:
+            os.remove(legacy_path)
+        except FileNotFoundError:
+            pass
     os.environ["GROQ_API_KEY"] = key
 
 
 def load_image_api_key():
     if os.environ.get("POLLINATIONS_API_KEY"):
         return os.environ["POLLINATIONS_API_KEY"]
-    key = read_credential(IMAGE_CREDENTIAL_TARGET)
+    key = _migrate_credential(IMAGE_CREDENTIAL_TARGET, LEGACY_IMAGE_CREDENTIAL_TARGET)
     if key:
         os.environ["POLLINATIONS_API_KEY"] = key
     return key
@@ -203,7 +262,7 @@ def save_image_api_key(key):
 def load_openai_realtime_api_key():
     if os.environ.get("OPENAI_API_KEY"):
         return os.environ["OPENAI_API_KEY"]
-    key = read_credential(OPENAI_REALTIME_CREDENTIAL_TARGET)
+    key = _migrate_credential(OPENAI_REALTIME_CREDENTIAL_TARGET, LEGACY_OPENAI_REALTIME_CREDENTIAL_TARGET)
     if key:
         os.environ["OPENAI_API_KEY"] = key
     return key

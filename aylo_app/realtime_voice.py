@@ -33,7 +33,7 @@ class RealtimeVoiceAgent:
         try:
             import websocket
         except ImportError as exc:
-            raise RealtimeVoiceError("Install websocket-client, then restart VoiceFlow.") from exc
+            raise RealtimeVoiceError("Install websocket-client, then restart Aylo.") from exc
 
         self.stop_event.clear()
         self.thread = threading.Thread(target=self._run, args=(websocket,), daemon=True)
@@ -51,7 +51,7 @@ class RealtimeVoiceAgent:
     def _run(self, websocket):
         headers = [
             f"Authorization: Bearer {self.api_key}",
-            "OpenAI-Safety-Identifier: voiceflow-local-user",
+            "OpenAI-Safety-Identifier: aylo-local-user",
         ]
         self.ws = websocket.WebSocketApp(
             REALTIME_URL,
@@ -74,7 +74,7 @@ class RealtimeVoiceAgent:
                         "type": "realtime",
                         "output_modalities": ["audio"],
                         "instructions": (
-                            "You are VoiceFlow AI. Speak naturally and briefly. "
+                            "You are Aylo AI. Speak naturally and briefly. "
                             "Be warm, practical, and conversational."
                         ),
                         "audio": {

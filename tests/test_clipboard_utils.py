@@ -1,6 +1,6 @@
 import unittest
 
-from voiceflow_app.clipboard_utils import ClipboardContentError, line_count, validate_clipboard_content
+from aylo_app.clipboard_utils import ClipboardContentError, line_count, validate_clipboard_content
 
 
 class ClipboardUtilsTests(unittest.TestCase):

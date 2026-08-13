@@ -238,14 +238,14 @@ class SplashScreen:
         screen_width = self.win.winfo_screenwidth()
         screen_height = self.win.winfo_screenheight()
         self.win.geometry(f"{width}x{height}+{(screen_width-width)//2}+{(screen_height-height)//2}")
-        tk.Label(self.win, text="VoiceFlow", bg="#111111", fg="#ffffff", font=("Helvetica", 24, "bold")).pack(pady=(18, 4))
+        tk.Label(self.win, text="Aylo", bg="#111111", fg="#ffffff", font=("Helvetica", 24, "bold")).pack(pady=(18, 4))
         self.status = tk.Label(self.win, text="Starting...", bg="#111111", fg="#a3a3a3", font=("Helvetica", 14))
         self.status.pack()
         self.timeout_id = self.win.after(30000, self._timeout)
         self.win.update()
 
     def _timeout(self):
-        ctypes.windll.user32.MessageBoxW(0, "Startup timeout. Check error log.", "VoiceFlow", 0x30)
+        ctypes.windll.user32.MessageBoxW(0, "Startup timeout. Check error log.", "Aylo", 0x30)
         sys.exit(1)
 
     def set_status(self, text):
@@ -264,7 +264,7 @@ def prompt_for_api_key_if_needed(save_api_key):
         return
     window = tk.Tk()
     normalize_tk_scaling(window)
-    window.title("Set up VoiceFlow AI")
+    window.title("Set up Aylo AI")
     window.resizable(False, False)
     window.attributes("-topmost", True)
     window.configure(bg="#111111")
@@ -277,7 +277,7 @@ def prompt_for_api_key_if_needed(save_api_key):
 
     body = tk.Frame(window, bg="#111111", padx=24, pady=22)
     body.pack(fill="both", expand=True)
-    tk.Label(body, text="Enable VoiceFlow AI", bg="#111111", fg="#ffffff", font=("Segoe UI", 17, "bold")).pack(anchor="w")
+    tk.Label(body, text="Enable Aylo AI", bg="#111111", fg="#ffffff", font=("Segoe UI", 17, "bold")).pack(anchor="w")
     tk.Label(
         body,
         text="Optional: add your free Groq API key for Ctrl + Space AI commands. Right Shift dictation stays offline.",
@@ -494,7 +494,7 @@ class Overlay:
     def show_ai_chat_image(self, path, text):
         self.state.ui_queue.put(("ai_chat_image", path, text))
 
-    def _ensure_gmail_panel(self, title="VoiceFlow AI"):
+    def _ensure_gmail_panel(self, title="Aylo AI"):
         if self.gmail_panel and self.gmail_panel.winfo_exists():
             self.gmail_panel.destroy()
         self.gmail_result_cards = {}
@@ -519,7 +519,7 @@ class Overlay:
         tk.Label(title_block, text=title, bg="#101010", fg="#ffffff", font=("Segoe UI", 18, "bold")).pack(anchor="w")
         tk.Label(title_block, text="Conversation", bg="#101010", fg="#8f8f8f", font=("Segoe UI", 10)).pack(anchor="w", pady=(2, 0))
         tk.Button(header, text="Close", command=self.gmail_panel.destroy, bg="#242424", fg="#dddddd", relief="flat", padx=14, pady=8, font=("Segoe UI", 10)).pack(side="right")
-        if title == "VoiceFlow AI":
+        if title == "Aylo AI":
             tk.Button(header, text="Clear", command=self._clear_ai_chat, bg="#242424", fg="#dddddd", relief="flat", padx=14, pady=8, font=("Segoe UI", 10)).pack(side="right", padx=(0, 8))
 
         canvas = tk.Canvas(self.gmail_panel, bg="#101010", highlightthickness=0)
@@ -536,7 +536,7 @@ class Overlay:
         return self.gmail_panel_body
 
     def _show_gmail_results_impl(self, question, answer, results):
-        body = self._ensure_gmail_panel("VoiceFlow AI")
+        body = self._ensure_gmail_panel("Aylo AI")
         self._chat_bubble(body, question, "user")
         if not results:
             self._chat_bubble(body, "I could not find matching Gmail messages. Sync Gmail and ask again.", "assistant")
@@ -648,7 +648,7 @@ class Overlay:
             return
         self.ai_panel = tk.Toplevel(self.root)
         self.ai_panel.withdraw()
-        self.ai_panel.title("VoiceFlow AI")
+        self.ai_panel.title("Aylo AI")
         self.ai_panel.attributes("-topmost", True)
         self.ai_panel.configure(bg="#101010")
         width, height, x, y = self._panel_geometry(self.ai_panel)
@@ -665,7 +665,7 @@ class Overlay:
         header.grid(row=0, column=0, sticky="ew")
         title_block = tk.Frame(header, bg="#101010")
         title_block.pack(side="left")
-        tk.Label(title_block, text="VoiceFlow AI", bg="#101010", fg="#ffffff", font=("Segoe UI", 15, "bold")).pack(anchor="w")
+        tk.Label(title_block, text="Aylo AI", bg="#101010", fg="#ffffff", font=("Segoe UI", 15, "bold")).pack(anchor="w")
         tk.Label(title_block, text="Conversation", bg="#101010", fg="#8f8f8f", font=("Segoe UI", 12)).pack(anchor="w", pady=(1, 0))
         tk.Button(header, text="Close", command=self._close_ai_panel, bg="#242424", fg="#dddddd", relief="flat", padx=9, pady=5, font=("Segoe UI", 12)).pack(side="right")
         tk.Button(header, text="Clear", command=self._clear_ai_chat, bg="#242424", fg="#dddddd", relief="flat", padx=9, pady=5, font=("Segoe UI", 12)).pack(side="right", padx=(0, 6))
@@ -1547,12 +1547,12 @@ class Overlay:
         menu.add_command(label="Settings...", command=self.open_settings)
         menu.add_command(label="Diagnostics...", command=self.open_diagnostics)
         menu.add_command(label="Setup...", command=self.open_onboarding)
-        menu.add_command(label="VoiceFlow AI", command=self.open_ai_panel)
+        menu.add_command(label="Aylo AI", command=self.open_ai_panel)
         menu.add_command(label="Screenshot & Markup", command=self._capture_screen_from_menu)
         menu.add_command(label="Conversation — coming soon", state="disabled")
         menu.add_separator()
         startup_var = tk.BooleanVar(value=self.is_startup_enabled())
-        menu.add_checkbutton(label="Start VoiceFlow with Windows", variable=startup_var, command=self.toggle_startup)
+        menu.add_checkbutton(label="Start Aylo with Windows", variable=startup_var, command=self.toggle_startup)
         menu.add_separator()
         menu.add_command(label="Change API Key...", command=self.change_api_key)
         menu.add_command(label="OpenAI Realtime API Key...", command=self.change_openai_realtime_api_key)

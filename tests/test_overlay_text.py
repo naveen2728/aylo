@@ -1,6 +1,6 @@
 import unittest
 
-from voiceflow_app.overlay import AI_INPUT_FONT_SIZE, AI_PENDING_FONT_SIZE, AI_REPLY_FONT_SIZE, format_chat_display_text, thinking_display_text
+from aylo_app.overlay import AI_INPUT_FONT_SIZE, AI_PENDING_FONT_SIZE, AI_REPLY_FONT_SIZE, format_chat_display_text, thinking_display_text
 
 
 class OverlayTextTests(unittest.TestCase):

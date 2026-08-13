@@ -24,7 +24,7 @@ class ConversationWindow:
             return
 
         self.window = tk.Toplevel(self.root)
-        self.window.title("VoiceFlow Conversation")
+        self.window.title("Aylo Conversation")
         self.window.geometry("760x720")
         self.window.minsize(520, 520)
         self.window.configure(bg="#0b0b0d")
@@ -216,7 +216,7 @@ class ConversationWindow:
             self.transcript.insert("end", "Your conversation will appear here.", "placeholder")
         for message in self.messages:
             role = message["role"]
-            name = "YOU\n" if role == "user" else ("SYSTEM\n" if message.get("system") else "VOICEFLOW AI\n")
+            name = "YOU\n" if role == "user" else ("SYSTEM\n" if message.get("system") else "AYLO AI\n")
             self.transcript.insert("end", name, f"{role}_name")
             self.transcript.insert("end", message["text"].strip() + "\n", "message")
         self.transcript.configure(state="disabled")

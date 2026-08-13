@@ -1,4 +1,4 @@
-# VoiceFlow Plus Roadmap
+# Aylo Plus Roadmap
 
 This project is a modular Windows desktop app built with Tkinter, faster-whisper,
 Groq, and PyInstaller. The Plus upgrade should happen in stages so each version
@@ -16,7 +16,7 @@ remains runnable.
 
 - Make API-key setup optional so basic dictation works without Groq.
 - Add clearer error messages for microphone, model, and API failures. In progress: microphone and recording errors improved.
-- Store settings in a structured config file. Done: `%APPDATA%\VoiceFlow\config.json`.
+- Store settings in a structured config file. Done: `%APPDATA%\Aylo\config.json`.
 - Add startup checks for Python, dependencies, bundled model files, and DLLs.
 
 ## Stage 3 - Plus Features

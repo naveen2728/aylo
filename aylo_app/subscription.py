@@ -50,11 +50,11 @@ PLANS = [
 
 
 def checkout_url():
-    return os.environ.get("VOICEFLOW_CHECKOUT_URL", CHECKOUT_URL)
+    return os.environ.get("AYLO_CHECKOUT_URL", CHECKOUT_URL)
 
 
 def marketing_url():
-    return os.environ.get("VOICEFLOW_MARKETING_URL", MARKETING_URL)
+    return os.environ.get("AYLO_MARKETING_URL", MARKETING_URL)
 
 
 def open_checkout():

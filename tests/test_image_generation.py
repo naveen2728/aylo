@@ -1,6 +1,6 @@
 import unittest
 
-from voiceflow_app.image_generation import image_prompt_from_request, is_image_generation_request
+from aylo_app.image_generation import image_prompt_from_request, is_image_generation_request
 
 
 class ImageGenerationTests(unittest.TestCase):

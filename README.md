@@ -2,9 +2,9 @@
 
 Local Voice Desktop is a Windows-first, local voice productivity assistant. It provides offline speech-to-text, global dictation hotkeys, optional AI rewriting and commands, realtime OpenAI voice conversations, add direct screenshots, and an optional Gmail assistant.
 
-Website: [voicefloww.vercel.app](https://voicefloww.vercel.app)
+Website source: [Aylo landing page](marketing/index.html)
 
-> **Legacy-name notice:** Some internal modules, storage paths, screenshots, and UI strings still use the former working name `VoiceFlow`. They are retained temporarily for compatibility and will be migrated incrementally. This project is not affiliated with Voiceflow, Inc.
+> **Migration notice:** Aylo migrates settings, history, Gmail OAuth configuration, and API credentials from the former VoiceFlow app names without deleting the original data. This project is not affiliated with Voiceflow, Inc.
 
 ## Status
 
@@ -76,11 +76,11 @@ The first run downloads the Whisper `base.en` model unless a bundled model is pr
 python build.py
 ```
 
-The build downloads the speech model and creates `dist\VoiceFlow.exe`. Generated models, executables, installers, and local output are intentionally excluded from Git. See [README_BUILD.md](README_BUILD.md) for packaging details.
+The build downloads the speech model and creates `dist\Aylo.exe`. Generated models, executables, installers, and local output are intentionally excluded from Git. See [README_BUILD.md](README_BUILD.md) for packaging details.
 
 ## Privacy
 
-Basic transcription runs locally. Features backed by Groq, OpenAI, Pollinations, or Google send the content needed for that feature to the selected provider. Gmail sync stores a local searchable index under `%APPDATA%\VoiceFlow`. Review [PRIVACY.md](PRIVACY.md) before enabling cloud or Gmail features.
+Basic transcription runs locally. Features backed by Groq, OpenAI, Pollinations, or Google send the content needed for that feature to the selected provider. Gmail sync stores a local searchable index under `%APPDATA%\Aylo`. Review [PRIVACY.md](PRIVACY.md) before enabling cloud or Gmail features.
 
 ## Contributing
 

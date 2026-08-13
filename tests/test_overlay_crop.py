@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 from PIL import Image
 
-from voiceflow_app.overlay import copy_image_to_clipboard, looks_like_screen_question, render_screenshot_annotations, scaled_crop_box, screenshot_editor_preview_limits
+from aylo_app.overlay import copy_image_to_clipboard, looks_like_screen_question, render_screenshot_annotations, scaled_crop_box, screenshot_editor_preview_limits
 
 
 class OverlayCropTests(unittest.TestCase):

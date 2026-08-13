@@ -21,4 +21,4 @@ Please allow a reasonable period for investigation and a coordinated fix before 
 
 ## Credential handling
 
-VoiceFlow stores supported credentials in Windows Credential Manager. Contributors must not add plaintext fallback credentials, print secrets in logs, or include real credentials in tests or fixtures.
+Aylo stores supported credentials in Windows Credential Manager. Contributors must not add plaintext fallback credentials, print secrets in logs, or include real credentials in tests or fixtures.

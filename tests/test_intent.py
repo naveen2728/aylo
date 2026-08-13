@@ -1,6 +1,6 @@
 import unittest
 
-from voiceflow_app.intent import (
+from aylo_app.intent import (
     build_clipboard_prompt,
     detect_command_action,
     looks_like_code,

@@ -1,4 +1,4 @@
-# VoiceFlow - Building and Distributing the EXE
+# Aylo - Building and Distributing the EXE
 
 ## Quick Start
 
@@ -30,14 +30,14 @@ python release.py
 2. Downloads the Whisper `base.en` model into `bundled_models/` if needed.
 3. Finds PortAudio and pywin32 DLLs.
 4. Runs PyInstaller in one-file, windowed mode.
-5. Produces `dist\VoiceFlow.exe`.
+5. Produces `dist\Aylo.exe`.
 
-The model is bundled inside the EXE. VoiceFlow can therefore run local transcription
+The model is bundled inside the EXE. Aylo can therefore run local transcription
 without downloading the model on the user's machine.
 
 ## What Happens On First Run
 
-1. VoiceFlow asks for an optional Groq API key.
+1. Aylo asks for an optional Groq API key.
 2. The app loads the bundled local speech model.
 3. The floating orb appears after the microphone opens.
 
@@ -47,27 +47,27 @@ commands require internet access and a Groq API key.
 The API key is stored securely in Windows Credential Manager under:
 
 ```text
-VoiceFlow/GroqApiKey
+Aylo/GroqApiKey
 ```
 
-Older `%APPDATA%\VoiceFlow\config.env` files are migrated automatically and removed.
+Older `%APPDATA%\Aylo\config.env` files are migrated automatically and removed.
 
 Audio and device settings are stored at:
 
 ```text
-%APPDATA%\VoiceFlow\config.json
+%APPDATA%\Aylo\config.json
 ```
 
 Recording errors are logged at:
 
 ```text
-%APPDATA%\VoiceFlow\error.log
+%APPDATA%\Aylo\error.log
 ```
 
 The latest 20 successful dictation and AI results are stored at:
 
 ```text
-%APPDATA%\VoiceFlow\history.json
+%APPDATA%\Aylo\history.json
 ```
 
 ## Controls
@@ -76,8 +76,8 @@ The latest 20 successful dictation and AI results are stored at:
 - Hold `Ctrl+Space` to record an AI command. Release to run it.
 - Optional: enable mouse side buttons from Settings. Back side button records dictation; Forward side button records an AI command.
 - Press `Backspace` while recording to cancel and discard the recording.
-- Press `Escape` twice quickly to quit VoiceFlow. A single Escape press is ignored.
-- Right-click the orb to rewrite copied text, recopy or clear recent results, launch VoiceFlow with Windows, change microphone settings, open Diagnostics, rerun Setup, reconnect AI, update the API key, open the log, or quit.
+- Press `Escape` twice quickly to quit Aylo. A single Escape press is ignored.
+- Right-click the orb to rewrite copied text, recopy or clear recent results, launch Aylo with Windows, change microphone settings, open Diagnostics, rerun Setup, reconnect AI, update the API key, open the log, or quit.
 - Hotkeys may not work while an Administrator app is focused.
 
 Clipboard-based AI commands and rewrites accept up to 100 copied lines at a time.
@@ -85,7 +85,7 @@ Generated code has outer Markdown fences removed before it is copied or pasted.
 Automatic dictation and AI-command pastes restore the text that was previously
 on the clipboard. Right-click rewrite actions intentionally leave their result copied.
 
-The `Start VoiceFlow with Windows` menu option stores a current-user startup entry.
+The `Start Aylo with Windows` menu option stores a current-user startup entry.
 It does not require Administrator access.
 
 ## Distribution
@@ -102,7 +102,7 @@ Code signing is the long-term solution for public distribution. See
 ```text
 main.py               # Small executable entry point
 build.py              # Official build command
-voiceflow_app/        # Application modules
+aylo_app/        # Application modules
 bundled_models/       # Whisper files included during the build
 build/                # PyInstaller temporary output
 dist/                 # Release executable

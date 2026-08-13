@@ -1,12 +1,12 @@
 """
-build.py - Builds VoiceFlow.exe
+build.py - Builds Aylo.exe
 Run with: python build.py
 
 What this does:
 1. Downloads the Whisper model so it's bundled into the .exe (no internet needed at runtime)
 2. Finds portaudio.dll and pywin32 DLLs automatically
 3. Runs PyInstaller with all required flags
-4. Creates dist/VoiceFlow.exe
+4. Creates dist/Aylo.exe
 """
 
 import os
@@ -44,7 +44,7 @@ REQUIRED_MODULES = [
 # =========================
 
 print("=" * 50)
-print("VoiceFlow Plus build pre-flight")
+print("Aylo Plus build pre-flight")
 print("=" * 50)
 
 if sys.version_info < (3, 11) or sys.version_info >= (3, 13):
@@ -156,13 +156,13 @@ version_txt = f"""VSVersionInfo(
     StringFileInfo([
       StringTable(
         u'040904B0',
-        [StringStruct(u'CompanyName', u'VoiceFlow'),
-         StringStruct(u'FileDescription', u'VoiceFlow - AI Voice to Text'),
+        [StringStruct(u'CompanyName', u'Aylo'),
+         StringStruct(u'FileDescription', u'Aylo - AI Voice to Text'),
          StringStruct(u'FileVersion', u'{VERSION}'),
-         StringStruct(u'InternalName', u'VoiceFlow'),
-         StringStruct(u'LegalCopyright', u'VoiceFlow'),
-         StringStruct(u'OriginalFilename', u'VoiceFlow.exe'),
-         StringStruct(u'ProductName', u'VoiceFlow'),
+         StringStruct(u'InternalName', u'Aylo'),
+         StringStruct(u'LegalCopyright', u'Aylo'),
+         StringStruct(u'OriginalFilename', u'Aylo.exe'),
+         StringStruct(u'ProductName', u'Aylo'),
          StringStruct(u'ProductVersion', u'{VERSION}')])
       ]),
     VarFileInfo([VarStruct(u'Translation', [1033, 1200])])
@@ -174,7 +174,7 @@ with open(version_file, "w") as f:
     f.write(version_txt)
 print(f"Version file: {version_file}\n")
 
-manifest_file = os.path.join(SCRIPT_DIR, "voiceflow.manifest")
+manifest_file = os.path.join(SCRIPT_DIR, "aylo.manifest")
 if not os.path.exists(manifest_file):
     print(f"ERROR: Missing Windows DPI manifest: {manifest_file}")
     sys.exit(1)
@@ -199,7 +199,7 @@ cmd = [
     sys.executable, "-m", "PyInstaller",
     "--onefile",
     "--windowed",               # no console window shown to end users
-    "--name", "VoiceFlow",
+    "--name", "Aylo",
     "--version-file", version_file,
     "--manifest", manifest_file,
     "--clean",                  # clean PyInstaller cache before building
@@ -265,16 +265,16 @@ result = subprocess.run(cmd, cwd=SCRIPT_DIR)
 
 print("\n" + "=" * 50)
 if result.returncode == 0:
-    exe_path = os.path.join(SCRIPT_DIR, "dist", "VoiceFlow.exe")
+    exe_path = os.path.join(SCRIPT_DIR, "dist", "Aylo.exe")
     print("BUILD COMPLETE!")
     print(f"\nYour .exe is at:\n  {exe_path}")
     print("\nWhat to tell users:")
-    print("  - Double-click VoiceFlow.exe to start")
+    print("  - Double-click Aylo.exe to start")
     print("  - First launch asks for a free Groq API key")
     print("  - Hold Right Shift to record dictation, release to paste")
     print("  - Optional: enable mouse side buttons in Settings")
     print("    Back records dictation; Forward records an AI command")
-    print("    VoiceFlow blocks the native browser Back/Forward mouse action")
+    print("    Aylo blocks the native browser Back/Forward mouse action")
     print("  - Hold Ctrl+Space for AI commands")
     print("  - Right-click the orb for Settings, Diagnostics, Setup, Reconnect AI, or Quit")
     print("  - Hotkeys don't work when an Admin app is focused")

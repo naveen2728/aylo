@@ -1,4 +1,4 @@
-"""Create versioned VoiceFlow release artifacts."""
+"""Create versioned Aylo release artifacts."""
 
 from __future__ import annotations
 
@@ -14,16 +14,16 @@ import zipfile
 
 VERSION = "3.1.1"
 ROOT = Path(__file__).resolve().parent
-DIST_EXE = ROOT / "dist" / "VoiceFlow.exe"
+DIST_EXE = ROOT / "dist" / "Aylo.exe"
 RELEASE_ROOT = ROOT / "release"
-PORTABLE_DIR = RELEASE_ROOT / f"VoiceFlow-{VERSION}"
-PORTABLE_EXE = PORTABLE_DIR / "VoiceFlow.exe"
-STANDALONE_EXE = RELEASE_ROOT / f"VoiceFlow-{VERSION}.exe"
-PORTABLE_ZIP = RELEASE_ROOT / f"VoiceFlow-{VERSION}-portable.zip"
-CHECKSUMS_FILE = RELEASE_ROOT / f"VoiceFlow-{VERSION}-SHA256SUMS.txt"
-INNO_SCRIPT = ROOT / "installer" / "VoiceFlow.iss"
+PORTABLE_DIR = RELEASE_ROOT / f"Aylo-{VERSION}"
+PORTABLE_EXE = PORTABLE_DIR / "Aylo.exe"
+STANDALONE_EXE = RELEASE_ROOT / f"Aylo-{VERSION}.exe"
+PORTABLE_ZIP = RELEASE_ROOT / f"Aylo-{VERSION}-portable.zip"
+CHECKSUMS_FILE = RELEASE_ROOT / f"Aylo-{VERSION}-SHA256SUMS.txt"
+INNO_SCRIPT = ROOT / "installer" / "Aylo.iss"
 FRIEND_GUIDE = ROOT / "FRIEND_TESTING.md"
-PORTABLE_GUIDE = PORTABLE_DIR / "VoiceFlow Quick Start.txt"
+PORTABLE_GUIDE = PORTABLE_DIR / "Aylo Quick Start.txt"
 
 
 def sha256(path):
@@ -40,7 +40,7 @@ def run(command):
 
 
 def find_inno_setup():
-    configured = os.environ.get("VOICEFLOW_ISCC")
+    configured = os.environ.get("AYLO_ISCC")
     candidates = [
         configured,
         shutil.which("iscc"),
@@ -55,8 +55,8 @@ def find_inno_setup():
 
 
 def sign(path):
-    signtool = os.environ.get("VOICEFLOW_SIGNTOOL")
-    certificate_sha1 = os.environ.get("VOICEFLOW_CERT_SHA1")
+    signtool = os.environ.get("AYLO_SIGNTOOL")
+    certificate_sha1 = os.environ.get("AYLO_CERT_SHA1")
     if not signtool or not certificate_sha1:
         return False
     run(
@@ -84,18 +84,18 @@ def create_portable_release():
     shutil.copy2(DIST_EXE, STANDALONE_EXE)
     shutil.copy2(FRIEND_GUIDE, PORTABLE_GUIDE)
     with zipfile.ZipFile(PORTABLE_ZIP, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.write(PORTABLE_EXE, arcname="VoiceFlow.exe")
-        archive.write(PORTABLE_GUIDE, arcname="VoiceFlow Quick Start.txt")
+        archive.write(PORTABLE_EXE, arcname="Aylo.exe")
+        archive.write(PORTABLE_GUIDE, arcname="Aylo Quick Start.txt")
     return [STANDALONE_EXE, PORTABLE_ZIP]
 
 
 def build_installer():
     iscc = find_inno_setup()
     if not iscc:
-        print("Installer skipped: install Inno Setup 6 or set VOICEFLOW_ISCC.")
+        print("Installer skipped: install Inno Setup 6 or set AYLO_ISCC.")
         return None
     run([iscc, f"/DMyAppVersion={VERSION}", str(INNO_SCRIPT)])
-    installer = RELEASE_ROOT / f"VoiceFlow-{VERSION}-Setup.exe"
+    installer = RELEASE_ROOT / f"Aylo-{VERSION}-Setup.exe"
     sign(installer)
     return installer
 
@@ -115,7 +115,7 @@ def main():
         run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"])
         run([sys.executable, "build.py"])
     if not DIST_EXE.is_file():
-        raise SystemExit("dist\\VoiceFlow.exe is missing. Run python build.py first.")
+        raise SystemExit("dist\\Aylo.exe is missing. Run python build.py first.")
 
     signed = sign(DIST_EXE)
     artifacts = create_portable_release()

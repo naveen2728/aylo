@@ -1,6 +1,6 @@
 import unittest
 
-from voiceflow_app.settings_window import sensitivity_label
+from aylo_app.settings_window import sensitivity_label
 
 
 class SettingsWindowTests(unittest.TestCase):

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock
 
-from voiceflow_app.free_conversation_agent import FreeConversationAgent
+from aylo_app.free_conversation_agent import FreeConversationAgent
 
 
 class FreeConversationAgentTests(unittest.TestCase):

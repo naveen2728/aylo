@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from voiceflow_app import config
-from voiceflow_app.config import AppSettings, load_settings
+from aylo_app import config
+from aylo_app.config import AppSettings, load_settings
 
 
 class ConfigTests(unittest.TestCase):
@@ -76,27 +76,53 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(settings.silence_rms_threshold, AppSettings().silence_rms_threshold)
 
     def test_load_api_key_uses_existing_environment_value(self):
-        with patch.dict(os.environ, {"GROQ_API_KEY": "from-environment"}, clear=False), patch("voiceflow_app.config._read_credential") as read:
+        with patch.dict(os.environ, {"GROQ_API_KEY": "from-environment"}, clear=False), patch("aylo_app.config._migrate_credential") as migrate:
             self.assertEqual(config.load_api_key(), "from-environment")
-        read.assert_not_called()
+        migrate.assert_not_called()
 
     def test_load_api_key_migrates_legacy_plain_text_file(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "config.env")
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write("GROQ_API_KEY=legacy-secret\n")
-            with patch.dict(os.environ, {}, clear=True), patch("voiceflow_app.config._read_credential", return_value=None), patch("voiceflow_app.config._write_credential") as write:
+            with patch.dict(os.environ, {}, clear=True), patch("aylo_app.config._migrate_credential", return_value=None), patch("aylo_app.config._write_credential") as write:
                 self.assertEqual(config.load_api_key(path), "legacy-secret")
                 self.assertEqual(os.environ["GROQ_API_KEY"], "legacy-secret")
             write.assert_called_once_with("legacy-secret")
-            self.assertFalse(os.path.exists(path))
+            self.assertTrue(os.path.exists(path))
 
-    def test_save_api_key_uses_credential_manager_and_removes_legacy_file(self):
+    def test_migrates_voiceflow_settings_without_deleting_original(self):
+        with tempfile.TemporaryDirectory() as directory:
+            legacy_dir = os.path.join(directory, "VoiceFlow")
+            aylo_dir = os.path.join(directory, "Aylo")
+            os.makedirs(legacy_dir)
+            legacy_settings = os.path.join(legacy_dir, "config.json")
+            new_settings = os.path.join(aylo_dir, "config.json")
+            with open(legacy_settings, "w", encoding="utf-8") as handle:
+                json.dump({"mic_device": 7, "first_run_complete": True}, handle)
+            with patch.object(config, "SETTINGS_FILE", new_settings), patch.object(config, "LEGACY_SETTINGS_FILE", legacy_settings):
+                settings = config.load_settings(config.SETTINGS_FILE)
+            self.assertEqual(settings.mic_device, 7)
+            self.assertTrue(settings.first_run_complete)
+            self.assertTrue(os.path.exists(legacy_settings))
+            self.assertTrue(os.path.exists(new_settings))
+
+    def test_migrates_voiceflow_credential_without_deleting_old_target(self):
+        with patch("aylo_app.config.read_credential", side_effect=[None, "old-secret"]), patch(
+            "aylo_app.config.write_credential"
+        ) as write:
+            self.assertEqual(
+                config._migrate_credential(config.CREDENTIAL_TARGET, config.LEGACY_CREDENTIAL_TARGET),
+                "old-secret",
+            )
+        write.assert_called_once_with(config.CREDENTIAL_TARGET, "old-secret")
+
+    def test_save_api_key_uses_credential_manager_and_removes_current_plain_text_file(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "config.env")
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write("GROQ_API_KEY=old-secret\n")
-            with patch.dict(os.environ, {}, clear=True), patch("voiceflow_app.config._write_credential") as write:
+            with patch.dict(os.environ, {}, clear=True), patch("aylo_app.config._write_credential") as write:
                 config.save_api_key("new-secret", path)
                 self.assertEqual(os.environ["GROQ_API_KEY"], "new-secret")
             write.assert_called_once_with("new-secret")

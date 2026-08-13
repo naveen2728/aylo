@@ -37,7 +37,7 @@ ANSWER_ONLY_SYSTEM_PROMPT = (
     "If the user asks for a rewrite or translation, return only the rewritten or translated content."
 )
 CHAT_SYSTEM_PROMPT = (
-    "You are VoiceFlow AI, a concise desktop assistant. Start with the direct answer. "
+    "You are Aylo AI, a concise desktop assistant. Start with the direct answer. "
     "Use one or two short paragraphs by default. Use a list only when it improves clarity, "
     "and prefix each list item with a plain hyphen and space. "
     "Do not use Markdown headings, bold markers, filler introductions, or repeat the user's request. "

@@ -1,6 +1,6 @@
 import unittest
 
-from voiceflow_app.prompts import get_prompt_for_window
+from aylo_app.prompts import get_prompt_for_window
 
 
 class PromptTests(unittest.TestCase):

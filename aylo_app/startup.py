@@ -4,7 +4,7 @@ import winreg
 
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-VALUE_NAME = "VoiceFlow"
+VALUE_NAME = "Aylo"
 
 
 def launch_command():

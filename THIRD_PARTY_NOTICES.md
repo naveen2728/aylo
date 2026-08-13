@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-VoiceFlow Desktop depends on third-party software that is not relicensed under this project's Apache License 2.0. Each dependency remains subject to its own license and notices.
+Aylo Desktop depends on third-party software that is not relicensed under this project's Apache License 2.0. Each dependency remains subject to its own license and notices.
 
 Direct Python dependencies are listed in `requirements.txt`. They include software under Apache-2.0, MIT-family, BSD-family, PSF, LGPL, and other compatible or exception-based terms. Transitive dependencies may add further notices.
 
