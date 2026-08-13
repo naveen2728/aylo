@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from voiceflow_app.transcription import AudioQualityError, transcribe_frames
+from aylo_app.transcription import AudioQualityError, transcribe_frames
 
 
 class FakeModel:

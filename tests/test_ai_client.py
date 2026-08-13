@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from voiceflow_app.ai_client import (
+from aylo_app.ai_client import (
     CHAT_MODEL,
     GenerationError,
     VISION_MODEL,
@@ -79,7 +79,7 @@ class AiClientTests(unittest.TestCase):
 
     @patch("groq.Groq")
     def test_connect_can_validate_a_candidate_key(self, groq):
-        from voiceflow_app.ai_client import connect
+        from aylo_app.ai_client import connect
 
         client = connect(api_key="gsk_candidate")
 
@@ -100,7 +100,7 @@ class AiClientTests(unittest.TestCase):
         client.chat.completions.create.return_value.choices = [
             Mock(message=Mock(content="The screen shows an error."))
         ]
-        with patch("voiceflow_app.ai_client._image_data_url", return_value="data:image/jpeg;base64,abc"):
+        with patch("aylo_app.ai_client._image_data_url", return_value="data:image/jpeg;base64,abc"):
             result = read_screen(client, "What is wrong?", "screen.png", Mock())
         self.assertEqual(result, "The screen shows an error.")
         kwargs = client.chat.completions.create.call_args.kwargs
@@ -116,7 +116,7 @@ class AiClientTests(unittest.TestCase):
         client = Mock()
         client.chat.completions.create.side_effect = ApiError("model_not_found", 404)
         log_error = Mock()
-        with patch("voiceflow_app.ai_client._image_data_url", return_value="data:image/jpeg;base64,abc"):
+        with patch("aylo_app.ai_client._image_data_url", return_value="data:image/jpeg;base64,abc"):
             with self.assertRaisesRegex(GenerationError, "model is unavailable"):
                 read_screen(client, "What is wrong?", "screen.png", log_error)
         self.assertEqual(client.chat.completions.create.call_count, 1)

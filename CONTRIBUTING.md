@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for helping improve VoiceFlow Desktop.
+Thank you for helping improve Aylo Desktop.
 
 ## Before you start
 

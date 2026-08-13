@@ -77,15 +77,9 @@ def open_input_stream(state, log_error=None):
             else:
                 state.pre_buffer.append(chunk)
 
-    try:
-        device = resolve_input_device(state.mic_device)
+    def create_stream(device):
         input_samplerate = resolve_input_samplerate(device, state.samplerate)
         blocksize = max(320, int(round(input_samplerate * 0.02)))
-        state.input_samplerate = input_samplerate
-        state.input_blocksize = blocksize
-        pre_buffer_blocks = math.ceil(input_samplerate * state.settings.pre_buffer_seconds / blocksize) + 2
-        with state.lock:
-            state.pre_buffer = deque(state.pre_buffer, maxlen=pre_buffer_blocks)
         stream = sd.InputStream(
             device=device,
             samplerate=input_samplerate,
@@ -96,6 +90,35 @@ def open_input_stream(state, log_error=None):
             callback=audio_callback,
         )
         stream.start()
+        return stream, input_samplerate, blocksize
+
+    try:
+        device = resolve_input_device(state.mic_device)
+        try:
+            stream, input_samplerate, blocksize = create_stream(device)
+        except Exception as primary_exc:
+            # Windows can invalidate a WASAPI endpoint after sleep, a Bluetooth
+            # change, or a driver reset. When the user chose the default mic,
+            # retry the Windows default endpoint (typically MME) before giving up.
+            fallback_device = None
+            if state.mic_device is None:
+                try:
+                    fallback_device = sd.default.device[0]
+                except (IndexError, TypeError):
+                    pass
+            if fallback_device is None or fallback_device == device:
+                raise primary_exc
+            if log_error:
+                log_error(
+                    f"WASAPI microphone device {device} failed; retrying default device {fallback_device}",
+                    primary_exc,
+                )
+            stream, input_samplerate, blocksize = create_stream(fallback_device)
+        state.input_samplerate = input_samplerate
+        state.input_blocksize = blocksize
+        pre_buffer_blocks = math.ceil(input_samplerate * state.settings.pre_buffer_seconds / blocksize) + 2
+        with state.lock:
+            state.pre_buffer = deque(state.pre_buffer, maxlen=pre_buffer_blocks)
         return stream
     except Exception as exc:
         device = "default" if state.mic_device is None else repr(state.mic_device)

@@ -1,9 +1,9 @@
-# VoiceFlow Marketing Kit
+# Aylo Marketing Kit
 
 ## Positioning
 
-VoiceFlow is a Windows dictation assistant for people who write all day. Hold a
-hotkey, speak naturally, and VoiceFlow pastes clean text into the app you are
+Aylo is a Windows dictation assistant for people who write all day. Hold a
+hotkey, speak naturally, and Aylo pastes clean text into the app you are
 already using.
 
 ## One-Liner
@@ -12,7 +12,7 @@ Fast voice-to-text for Windows, with AI cleanup and clipboard commands.
 
 ## Short Description
 
-VoiceFlow turns your voice into polished text anywhere on Windows. Use local
+Aylo turns your voice into polished text anywhere on Windows. Use local
 dictation for quick notes, then upgrade to Plus for AI cleanup, rewrites,
 summaries, translations, and voice commands that work with copied text.
 
@@ -35,7 +35,7 @@ summaries, translations, and voice commands that work with copied text.
 
 ### Starter - Free
 
-For trying VoiceFlow and using basic local dictation.
+For trying Aylo and using basic local dictation.
 
 - Offline English speech-to-text
 - Floating dictation orb
@@ -75,7 +75,7 @@ For small teams and commercial use.
 
 Headline:
 
-VoiceFlow
+Aylo
 
 Subheadline:
 
@@ -96,5 +96,5 @@ AI voice-to-text for Windows that works inside every app.
 
 ## First Launch Offer
 
-Launch VoiceFlow Plus at $9/month with a simple promise: save 30 minutes a day
+Launch Aylo Plus at $9/month with a simple promise: save 30 minutes a day
 on emails, notes, prompts, and rewrites.

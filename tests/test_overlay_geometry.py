@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock
 
-from voiceflow_app.overlay import (
+from aylo_app.overlay import (
     BLDS,
     CX,
     CY,

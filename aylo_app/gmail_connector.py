@@ -115,7 +115,7 @@ def _build_service(credentials):
     try:
         from googleapiclient.discovery import build
     except ImportError as exc:
-        raise GmailSyncError("Install Google API packages from requirements.txt, then restart VoiceFlow.") from exc
+        raise GmailSyncError("Install Google API packages from requirements.txt, then restart Aylo.") from exc
     return build("gmail", "v1", credentials=credentials)
 
 

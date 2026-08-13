@@ -1,0 +1,1 @@
+"""Aylo desktop application package."""

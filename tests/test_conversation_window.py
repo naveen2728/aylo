@@ -1,6 +1,6 @@
 import unittest
 
-from voiceflow_app.conversation_window import ConversationWindow
+from aylo_app.conversation_window import ConversationWindow
 
 
 class ConversationWindowTranscriptTests(unittest.TestCase):

@@ -1,10 +1,10 @@
 # Privacy
 
-VoiceFlow Desktop is designed so basic speech transcription can run locally. Optional features connect to third-party services and therefore have different privacy characteristics.
+Aylo Desktop is designed so basic speech transcription can run locally. Optional features connect to third-party services and therefore have different privacy characteristics.
 
 ## Data stored locally
 
-The application may store the following under `%APPDATA%\VoiceFlow`:
+The application may store the following under `%APPDATA%\Aylo`:
 
 - Application and microphone settings
 - Error logs

@@ -4,7 +4,7 @@ Run:
     .venv\Scripts\python.exe scripts\mouse_side_button_test.py
 
 Press the mouse Back/Forward side buttons. This script does not start
-VoiceFlow, record audio, paste text, or change app settings.
+Aylo, record audio, paste text, or change app settings.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def main():
     if not SIDE_BUTTONS:
         raise SystemExit("This pynput version does not expose mouse side buttons.")
 
-    print("VoiceFlow mouse side-button test")
+    print("Aylo mouse side-button test")
     print("Press Back/Forward side buttons on the mouse.")
     print("Press Ctrl+C here to stop.\n")
 

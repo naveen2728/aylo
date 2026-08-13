@@ -11,22 +11,22 @@ class ReleaseTests(unittest.TestCase):
     def test_sha256_is_uppercase(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sample.bin"
-            path.write_bytes(b"VoiceFlow")
+            path.write_bytes(b"Aylo")
             self.assertEqual(
                 release.sha256(path),
-                "D87A29B9C3FD799B3EDFCBA2D6ED408E6FB7C2864AB62C87A971D7E5D65DF670",
+                "FA158A4D5EF1E32017E5537FAA20F32D1BB293F9CDD3FD5BF3A37482490F3E39",
             )
 
     def test_find_inno_setup_uses_configured_path(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ISCC.exe"
             path.write_bytes(b"")
-            with patch.dict(os.environ, {"VOICEFLOW_ISCC": str(path)}, clear=False), patch("release.shutil.which", return_value=None):
+            with patch.dict(os.environ, {"AYLO_ISCC": str(path)}, clear=False), patch("release.shutil.which", return_value=None):
                 self.assertEqual(release.find_inno_setup(), str(path))
 
     def test_sign_is_optional_without_configuration(self):
         with patch.dict(os.environ, {}, clear=True):
-            self.assertFalse(release.sign(Path("VoiceFlow.exe")))
+            self.assertFalse(release.sign(Path("Aylo.exe")))
 
     def test_find_inno_setup_supports_user_local_install(self):
         with tempfile.TemporaryDirectory() as directory:

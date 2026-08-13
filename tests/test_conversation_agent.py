@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import Mock
 
-from voiceflow_app.conversation_agent import ConversationAgent
+from aylo_app.conversation_agent import ConversationAgent
 
 
 class DummyWebSocket:

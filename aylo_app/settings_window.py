@@ -21,7 +21,7 @@ class SettingsWindow:
         self.device_by_label = {device["label"]: device["id"] for device in input_devices}
 
         self.window = tk.Toplevel(parent)
-        self.window.title("VoiceFlow Settings")
+        self.window.title("Aylo Settings")
         self.window.resizable(False, False)
         self.window.attributes("-topmost", True)
         self.window.configure(bg="#1a1a1a")
@@ -60,7 +60,7 @@ class SettingsWindow:
         ).pack(anchor="w")
         tk.Label(
             ai_frame,
-            text="Off keeps VoiceFlow fully offline. On enables Ctrl + Space AI commands. Right Shift dictation always stays local.",
+            text="Off keeps Aylo fully offline. On enables Ctrl + Space AI commands. Right Shift dictation always stays local.",
             bg="#1a1a1a", fg="#a3a3a3", wraplength=410, justify="left",
         ).pack(anchor="w", pady=(4, 7))
         status = "AI key: connected" if ai_key_configured else "AI key: not added"
@@ -112,9 +112,9 @@ class SettingsWindow:
                 ai_features_enabled=self.ai_features_var.get(),
             )
         except Exception as exc:
-            messagebox.showerror("VoiceFlow Settings", str(exc), parent=self.window)
+            messagebox.showerror("Aylo Settings", str(exc), parent=self.window)
             return
-        messagebox.showinfo("VoiceFlow Settings", "Settings saved.", parent=self.window)
+        messagebox.showinfo("Aylo Settings", "Settings saved.", parent=self.window)
         self.window.destroy()
 
 
@@ -124,7 +124,7 @@ class DiagnosticsWindow:
         self.reconnect_callback = reconnect_callback
         self.open_log_callback = open_log_callback
         self.window = tk.Toplevel(parent)
-        self.window.title("VoiceFlow Diagnostics")
+        self.window.title("Aylo Diagnostics")
         self.window.resizable(False, False)
         self.window.attributes("-topmost", True)
         self.window.configure(bg="#111111")
@@ -158,7 +158,7 @@ class DiagnosticsWindow:
 
     def _reconnect(self):
         message = self.reconnect_callback()
-        messagebox.showinfo("VoiceFlow Diagnostics", message, parent=self.window)
+        messagebox.showinfo("Aylo Diagnostics", message, parent=self.window)
         self.refresh()
 
 
@@ -173,7 +173,7 @@ class OnboardingWindow:
         self.device_by_label = {device["label"]: device["id"] for device in input_devices}
 
         self.window = tk.Toplevel(parent)
-        self.window.title("Set Up VoiceFlow")
+        self.window.title("Set Up Aylo")
         self.window.resizable(False, False)
         self.window.attributes("-topmost", True)
         self.window.configure(bg="#111111")
@@ -186,7 +186,7 @@ class OnboardingWindow:
 
         body = tk.Frame(self.window, bg="#111111", padx=18, pady=18)
         body.pack(fill="both", expand=True)
-        tk.Label(body, text="Set Up VoiceFlow", bg="#111111", fg="#ffffff", font=("Segoe UI", 17, "bold")).pack(anchor="w")
+        tk.Label(body, text="Set Up Aylo", bg="#111111", fg="#ffffff", font=("Segoe UI", 17, "bold")).pack(anchor="w")
 
         mic_frame = tk.Frame(body, bg="#111111")
         mic_frame.pack(fill="x", pady=(16, 12))
@@ -229,15 +229,15 @@ class OnboardingWindow:
                 mouse_forward_action=self.settings.mouse_forward_action,
             )
         except Exception as exc:
-            messagebox.showerror("VoiceFlow Setup", str(exc), parent=self.window)
+            messagebox.showerror("Aylo Setup", str(exc), parent=self.window)
             return
-        messagebox.showinfo("VoiceFlow Setup", "Microphone saved.", parent=self.window)
+        messagebox.showinfo("Aylo Setup", "Microphone saved.", parent=self.window)
 
     def _save_and_test_ai(self):
         key = self.api_var.get().strip()
         if key:
             self.api_key_callback(key)
-        messagebox.showinfo("VoiceFlow Setup", self.reconnect_callback(), parent=self.window)
+        messagebox.showinfo("Aylo Setup", self.reconnect_callback(), parent=self.window)
 
     def _finish(self):
         self.finish_callback()

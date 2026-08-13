@@ -1,9 +1,9 @@
-# VoiceFlow Friend Testing
+# Aylo Friend Testing
 
 Share:
 
 ```text
-release\VoiceFlow-3.1.1-Setup.exe
+release\Aylo-3.1.1-Setup.exe
 ```
 
 ## What Friends Should Expect
@@ -19,12 +19,12 @@ release\VoiceFlow-3.1.1-Setup.exe
 - Hold `Right Shift` for dictation, then release it to stop and process.
 - Hold `Ctrl+Space` for an AI command, then release it to stop and process.
 - Right-click the orb and choose `Start Realtime Voice Chat` to talk with AI by voice. Use `Stop Realtime Voice Chat` from the same menu to end it.
-- Realtime voice uses an OpenAI API key. Set it from `Change Realtime Voice API Key...` if VoiceFlow asks for one.
+- Realtime voice uses an OpenAI API key. Set it from `Change Realtime Voice API Key...` if Aylo asks for one.
 - To use a mouse, enable side buttons in Settings. Back records dictation and Forward records an AI command. Hold the button while speaking, then release to process.
-- If your mouse software supports blocking the original Back/Forward action, enable that so the buttons only trigger VoiceFlow.
+- If your mouse software supports blocking the original Back/Forward action, enable that so the buttons only trigger Aylo.
 - Press `Backspace` while recording to cancel it.
 - Press `Escape` twice quickly to quit.
-- Right-click the orb for VoiceFlow AI and screenshot questions.
+- Right-click the orb for Aylo AI and screenshot questions.
 
 ## Useful Beta Tests
 
@@ -32,6 +32,6 @@ release\VoiceFlow-3.1.1-Setup.exe
 - Copy text and say: `Translate the copied text into Telugu.`
 - Copy text and say: `Summarize the copied text in one sentence.`
 - Copy up to 100 lines of code and request a small code edit.
-- Open VoiceFlow AI, capture a screenshot, and ask what is on screen.
+- Open Aylo AI, capture a screenshot, and ask what is on screen.
 
 Hotkeys may not work inside applications running as Administrator.

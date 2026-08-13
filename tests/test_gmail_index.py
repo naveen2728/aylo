@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 
-from voiceflow_app.gmail_index import GmailIndex, build_gmail_answer_prompt, build_gmail_reply_prompt, normalize_gmail_message
+from aylo_app.gmail_index import GmailIndex, build_gmail_answer_prompt, build_gmail_reply_prompt, normalize_gmail_message
 
 
 def encoded(text):

@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from voiceflow_app.plugins import load_plugins, match_plugin_for_window
+from aylo_app.plugins import load_plugins, match_plugin_for_window
 
 
 class PluginTests(unittest.TestCase):

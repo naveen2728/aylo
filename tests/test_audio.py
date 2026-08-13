@@ -3,19 +3,19 @@ from unittest.mock import patch
 
 import numpy as np
 
-from voiceflow_app.audio import list_input_devices, open_input_stream, resolve_input_device
-from voiceflow_app.config import AppSettings
-from voiceflow_app.state import RuntimeState
+from aylo_app.audio import list_input_devices, open_input_stream, resolve_input_device
+from aylo_app.config import AppSettings
+from aylo_app.state import RuntimeState
 
 
 class AudioTests(unittest.TestCase):
     def test_resolves_default_input_device(self):
-        with patch("voiceflow_app.audio._wasapi_default_input_device", return_value=None), patch("voiceflow_app.audio.sd.default.device", [3, 7]):
+        with patch("aylo_app.audio._wasapi_default_input_device", return_value=None), patch("aylo_app.audio.sd.default.device", [3, 7]):
             self.assertEqual(resolve_input_device(None), 3)
         self.assertEqual(resolve_input_device(5), 5)
 
     def test_prefers_wasapi_default_input_device(self):
-        with patch("voiceflow_app.audio._wasapi_default_input_device", return_value=10):
+        with patch("aylo_app.audio._wasapi_default_input_device", return_value=10):
             self.assertEqual(resolve_input_device(None), 10)
 
     def test_lists_default_and_input_devices_only(self):
@@ -23,7 +23,7 @@ class AudioTests(unittest.TestCase):
             {"name": "Speakers", "max_input_channels": 0},
             {"name": "USB Mic", "max_input_channels": 1},
         ]
-        with patch("voiceflow_app.audio.sd.query_devices", return_value=devices):
+        with patch("aylo_app.audio.sd.query_devices", return_value=devices):
             self.assertEqual(
                 list_input_devices(),
                 [
@@ -34,18 +34,31 @@ class AudioTests(unittest.TestCase):
 
     def test_microphone_failure_identifies_device(self):
         state = RuntimeState(AppSettings(mic_device=4))
-        with patch("voiceflow_app.audio.sd.InputStream", side_effect=OSError("device unavailable")):
+        with patch("aylo_app.audio.sd.InputStream", side_effect=OSError("device unavailable")):
             with self.assertRaisesRegex(RuntimeError, "microphone device 4"):
                 open_input_stream(state)
+
+    def test_default_microphone_falls_back_when_wasapi_is_invalidated(self):
+        state = RuntimeState(AppSettings())
+        stream = unittest.mock.Mock()
+        with patch("aylo_app.audio._wasapi_default_input_device", return_value=10), patch(
+            "aylo_app.audio.sd.default.device", [1, 3]
+        ), patch("aylo_app.audio.sd.check_input_settings"), patch(
+            "aylo_app.audio.sd.InputStream", side_effect=[OSError("WASAPI invalidated"), stream]
+        ) as input_stream:
+            self.assertIs(open_input_stream(state), stream)
+        self.assertEqual(input_stream.call_args_list[0].kwargs["device"], 10)
+        self.assertEqual(input_stream.call_args_list[1].kwargs["device"], 1)
+        stream.start.assert_called_once_with()
 
     def test_stream_uses_low_latency_native_wasapi_rate(self):
         state = RuntimeState(AppSettings())
         stream = unittest.mock.Mock()
-        with patch("voiceflow_app.audio._wasapi_default_input_device", return_value=10), patch(
-            "voiceflow_app.audio.sd.check_input_settings",
+        with patch("aylo_app.audio._wasapi_default_input_device", return_value=10), patch(
+            "aylo_app.audio.sd.check_input_settings",
             side_effect=[ValueError("16 kHz unsupported"), None],
-        ), patch("voiceflow_app.audio.sd.query_devices", return_value={"default_samplerate": 48000}), patch(
-            "voiceflow_app.audio.sd.InputStream", return_value=stream
+        ), patch("aylo_app.audio.sd.query_devices", return_value={"default_samplerate": 48000}), patch(
+            "aylo_app.audio.sd.InputStream", return_value=stream
         ) as input_stream:
             open_input_stream(state)
         kwargs = input_stream.call_args.kwargs
@@ -59,10 +72,10 @@ class AudioTests(unittest.TestCase):
     def test_audio_callback_tracks_freshness_and_signal_level(self):
         state = RuntimeState(AppSettings())
         stream = unittest.mock.Mock()
-        with patch("voiceflow_app.audio._wasapi_default_input_device", return_value=10), patch(
-            "voiceflow_app.audio.sd.check_input_settings"
-        ), patch("voiceflow_app.audio.sd.InputStream", return_value=stream) as input_stream, patch(
-            "voiceflow_app.audio.time.monotonic", return_value=123.0
+        with patch("aylo_app.audio._wasapi_default_input_device", return_value=10), patch(
+            "aylo_app.audio.sd.check_input_settings"
+        ), patch("aylo_app.audio.sd.InputStream", return_value=stream) as input_stream, patch(
+            "aylo_app.audio.time.monotonic", return_value=123.0
         ):
             open_input_stream(state)
             callback = input_stream.call_args.kwargs["callback"]

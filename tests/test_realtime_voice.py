@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import Mock
 
-from voiceflow_app.realtime_voice import RealtimeVoiceAgent
+from aylo_app.realtime_voice import RealtimeVoiceAgent
 
 
 class DummyWebSocket:

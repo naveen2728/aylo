@@ -1,7 +1,15 @@
 import json
 import os
 
-from .config import GMAIL_CLIENT_SECRET_FILE, GMAIL_TOKEN_TARGET, delete_credential, read_credential, write_credential
+from .config import (
+    GMAIL_CLIENT_SECRET_FILE,
+    GMAIL_TOKEN_TARGET,
+    LEGACY_GMAIL_TOKEN_TARGET,
+    _migrate_credential,
+    delete_credential,
+    read_credential,
+    write_credential,
+)
 
 
 SCOPES = [
@@ -16,7 +24,7 @@ class GmailAuthError(RuntimeError):
 
 
 def load_token():
-    value = read_credential(GMAIL_TOKEN_TARGET)
+    value = _migrate_credential(GMAIL_TOKEN_TARGET, LEGACY_GMAIL_TOKEN_TARGET)
     if not value:
         return None
     try:
@@ -43,7 +51,7 @@ def get_credentials(client_secret_file=GMAIL_CLIENT_SECRET_FILE, run_flow=True):
         from google.oauth2.credentials import Credentials
         from google_auth_oauthlib.flow import InstalledAppFlow
     except ImportError as exc:
-        raise GmailAuthError("Install Google auth packages from requirements.txt, then restart VoiceFlow.") from exc
+        raise GmailAuthError("Install Google auth packages from requirements.txt, then restart Aylo.") from exc
 
     token_data = load_token()
     credentials = Credentials.from_authorized_user_info(token_data, SCOPES) if token_data else None
@@ -60,7 +68,7 @@ def get_credentials(client_secret_file=GMAIL_CLIENT_SECRET_FILE, run_flow=True):
         raise GmailAuthError("Gmail needs to be reconnected to allow draft creation.")
     if not os.path.exists(client_secret_file):
         raise GmailAuthError(
-            "Missing Google OAuth client file. Save it as google_oauth_client.json in %APPDATA%\\VoiceFlow."
+            "Missing Google OAuth client file. Save it as google_oauth_client.json in %APPDATA%\\Aylo."
         )
 
     flow = InstalledAppFlow.from_client_secrets_file(client_secret_file, SCOPES)

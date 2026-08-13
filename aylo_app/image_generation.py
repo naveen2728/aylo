@@ -42,7 +42,7 @@ def generate_image(prompt):
     encoded = urllib.parse.quote(prompt)
     query = urllib.parse.urlencode({"width": "1024", "height": "1024", "nologo": "true", "key": key})
     url = f"https://gen.pollinations.ai/image/{encoded}?{query}"
-    request = urllib.request.Request(url, headers={"User-Agent": "VoiceFlow/1.1"})
+    request = urllib.request.Request(url, headers={"User-Agent": "Aylo/1.1"})
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
             data = response.read()

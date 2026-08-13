@@ -3,7 +3,7 @@ import os
 import tempfile
 import unittest
 
-from voiceflow_app.history import HistoryEntry, HistoryStore, history_label
+from aylo_app.history import HistoryEntry, HistoryStore, history_label
 
 
 class HistoryTests(unittest.TestCase):

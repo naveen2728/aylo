@@ -2,7 +2,7 @@
 setlocal
 
 echo.
-echo VoiceFlow build
+echo Aylo build
 echo ===============
 echo.
 
@@ -22,5 +22,5 @@ if errorlevel 1 (
 )
 
 echo.
-echo [OK] Build complete: dist\VoiceFlow.exe
+echo [OK] Build complete: dist\Aylo.exe
 pause

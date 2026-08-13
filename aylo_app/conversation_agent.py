@@ -35,7 +35,7 @@ class ConversationAgent:
         try:
             import websocket
         except ImportError as exc:
-            raise ConversationAgentError("Install websocket-client, then restart VoiceFlow.") from exc
+            raise ConversationAgentError("Install websocket-client, then restart Aylo.") from exc
 
         self.stop_event.clear()
         self.thread = threading.Thread(target=self._run, args=(websocket,), daemon=True)
@@ -63,7 +63,7 @@ class ConversationAgent:
             CONVERSATION_URL,
             header=[
                 f"Authorization: Bearer {self.api_key}",
-                "OpenAI-Safety-Identifier: voiceflow-conversation-user",
+                "OpenAI-Safety-Identifier: aylo-conversation-user",
             ],
             on_open=self._on_open,
             on_message=self._on_message,
@@ -80,7 +80,7 @@ class ConversationAgent:
                     "type": "realtime",
                     "output_modalities": ["audio"],
                     "instructions": (
-                        "You are VoiceFlow AI, a helpful conversational voice assistant. "
+                        "You are Aylo AI, a helpful conversational voice assistant. "
                         "Respond naturally, warmly, and concisely. Remember context from this "
                         "conversation. Ask a brief follow-up when the user's request is unclear."
                     ),

@@ -1,15 +1,15 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from voiceflow_app.app import VoiceFlowApp
-from voiceflow_app.config import AppSettings
-from voiceflow_app.state import STATE_IDLE, STATE_RECORDING
+from aylo_app.app import AyloApp
+from aylo_app.config import AppSettings
+from aylo_app.state import STATE_IDLE, STATE_RECORDING
 
 
 class AppCancelTests(unittest.TestCase):
     def test_cancel_discards_recording_and_timer(self):
-        with patch("voiceflow_app.app.load_settings", return_value=AppSettings()), patch("voiceflow_app.app.HistoryStore"):
-            app = VoiceFlowApp()
+        with patch("aylo_app.app.load_settings", return_value=AppSettings()), patch("aylo_app.app.HistoryStore"):
+            app = AyloApp()
         timer = Mock()
         app.state.recording_state = STATE_RECORDING
         app.state.audio_frames = ["captured audio"]

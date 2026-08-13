@@ -5,9 +5,9 @@ from unittest.mock import patch
 from pynput import keyboard as kb
 from pynput import mouse as ms
 
-from voiceflow_app.config import AppSettings
-from voiceflow_app.hotkeys import HotkeyListener
-from voiceflow_app.state import RuntimeState, STATE_RECORDING
+from aylo_app.config import AppSettings
+from aylo_app.hotkeys import HotkeyListener
+from aylo_app.state import RuntimeState, STATE_RECORDING
 
 
 class HotkeyTests(unittest.TestCase):
@@ -51,7 +51,7 @@ class HotkeyTests(unittest.TestCase):
         def log_error(message, exc=None):
             self.log_errors.append((message, exc))
 
-        with patch("voiceflow_app.hotkeys.kb.Listener"), patch("voiceflow_app.hotkeys.MouseSideButtonHook"):
+        with patch("aylo_app.hotkeys.kb.Listener"), patch("aylo_app.hotkeys.MouseSideButtonHook"):
             self.listener = HotkeyListener(
                 self.state,
                 start_recording,
@@ -70,26 +70,26 @@ class HotkeyTests(unittest.TestCase):
         self.assertEqual(self.started_modes, [])
 
     def test_right_shift_starts_dictation(self):
-        with patch("voiceflow_app.hotkeys.time.monotonic", return_value=10.0):
+        with patch("aylo_app.hotkeys.time.monotonic", return_value=10.0):
             self.listener.on_press(kb.Key.shift_r)
             time.sleep(0.22)
         self.assertEqual(self.started_modes, ["dictation"])
 
     def test_ctrl_space_starts_command(self):
-        with patch("voiceflow_app.hotkeys.time.monotonic", return_value=10.0):
+        with patch("aylo_app.hotkeys.time.monotonic", return_value=10.0):
             self.listener.on_press(kb.Key.ctrl)
             self.listener.on_press(kb.Key.space)
         self.assertEqual(self.started_modes, ["command"])
 
     def test_ctrl_shift_space_still_starts_command(self):
-        with patch("voiceflow_app.hotkeys.time.monotonic", return_value=10.0):
+        with patch("aylo_app.hotkeys.time.monotonic", return_value=10.0):
             self.listener.on_press(kb.Key.ctrl)
             self.listener.on_press(kb.Key.shift_l)
             self.listener.on_press(kb.Key.space)
         self.assertEqual(self.started_modes, ["command"])
 
     def test_key_repeat_does_not_trigger_twice(self):
-        with patch("voiceflow_app.hotkeys.time.monotonic", return_value=10.0):
+        with patch("aylo_app.hotkeys.time.monotonic", return_value=10.0):
             self.listener.on_press(kb.Key.ctrl)
             self.listener.on_press(kb.Key.space)
             self.listener.on_press(kb.Key.space)
@@ -116,26 +116,26 @@ class HotkeyTests(unittest.TestCase):
         self.assertEqual(self.stop_calls, 0)
 
     def test_single_escape_does_not_close_app(self):
-        with patch("voiceflow_app.hotkeys.time.monotonic", return_value=10.0):
+        with patch("aylo_app.hotkeys.time.monotonic", return_value=10.0):
             self.listener.on_press(kb.Key.esc)
         self.listener.on_release(kb.Key.esc)
         self.assertEqual(self.close_calls, 0)
 
     def test_double_escape_closes_app(self):
-        with patch("voiceflow_app.hotkeys.time.monotonic", side_effect=[10.0, 10.5]):
+        with patch("aylo_app.hotkeys.time.monotonic", side_effect=[10.0, 10.5]):
             self.listener.on_press(kb.Key.esc)
             self.listener.on_release(kb.Key.esc)
             self.listener.on_press(kb.Key.esc)
         self.assertEqual(self.close_calls, 1)
 
     def test_holding_escape_does_not_close_app(self):
-        with patch("voiceflow_app.hotkeys.time.monotonic", return_value=10.0):
+        with patch("aylo_app.hotkeys.time.monotonic", return_value=10.0):
             self.listener.on_press(kb.Key.esc)
             self.listener.on_press(kb.Key.esc)
         self.assertEqual(self.close_calls, 0)
 
     def test_slow_escape_taps_do_not_close_app(self):
-        with patch("voiceflow_app.hotkeys.time.monotonic", side_effect=[10.0, 11.0]):
+        with patch("aylo_app.hotkeys.time.monotonic", side_effect=[10.0, 11.0]):
             self.listener.on_press(kb.Key.esc)
             self.listener.on_release(kb.Key.esc)
             self.listener.on_press(kb.Key.esc)
@@ -143,13 +143,13 @@ class HotkeyTests(unittest.TestCase):
 
     def test_mouse_listener_does_not_start_when_setting_disabled(self):
         self.state.settings.mouse_side_button_mic = False
-        with patch("voiceflow_app.hotkeys.MouseSideButtonHook") as mouse_listener:
+        with patch("aylo_app.hotkeys.MouseSideButtonHook") as mouse_listener:
             self.listener.refresh_mouse_listener()
         mouse_listener.assert_not_called()
 
     def test_mouse_listener_starts_when_setting_enabled(self):
         self.state.settings.mouse_side_button_mic = True
-        with patch("voiceflow_app.hotkeys.MouseSideButtonHook") as mouse_listener:
+        with patch("aylo_app.hotkeys.MouseSideButtonHook") as mouse_listener:
             self.listener.refresh_mouse_listener()
         mouse_listener.assert_called_once_with(
             self.listener.handle_mouse_button_event,

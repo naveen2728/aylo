@@ -1,6 +1,6 @@
 import unittest
 
-from voiceflow_app.rewrite_actions import REWRITE_ACTIONS, build_rewrite_prompt
+from aylo_app.rewrite_actions import REWRITE_ACTIONS, build_rewrite_prompt
 
 
 class RewriteActionTests(unittest.TestCase):

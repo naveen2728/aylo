@@ -1,12 +1,12 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from voiceflow_app.app import VoiceFlowApp
+from aylo_app.app import AyloApp
 
 
 class AppSettingsTests(unittest.TestCase):
     def test_failed_microphone_change_keeps_previous_device(self):
-        with patch("voiceflow_app.app.load_settings") as load_settings, patch("voiceflow_app.app.HistoryStore"):
+        with patch("aylo_app.app.load_settings") as load_settings, patch("aylo_app.app.HistoryStore"):
             settings = load_settings.return_value
             settings.samplerate = 16000
             settings.mic_device = 1
@@ -16,10 +16,10 @@ class AppSettingsTests(unittest.TestCase):
             settings.silence_rms_threshold = 0.002
             settings.mouse_side_button_mic = False
             settings.mouse_forward_action = "command"
-            app = VoiceFlowApp()
+            app = AyloApp()
         app.state.stream = object()
 
-        with patch("voiceflow_app.app.open_input_stream", side_effect=RuntimeError("unavailable")):
+        with patch("aylo_app.app.open_input_stream", side_effect=RuntimeError("unavailable")):
             with self.assertRaisesRegex(RuntimeError, "unavailable"):
                 app.apply_settings(mic_device=2, silence_rms_threshold=0.005, max_record_seconds=45)
 
@@ -27,7 +27,7 @@ class AppSettingsTests(unittest.TestCase):
         self.assertEqual(app.state.settings.mic_device, 1)
 
     def test_mouse_button_setting_refreshes_hotkey_listener(self):
-        with patch("voiceflow_app.app.load_settings") as load_settings, patch("voiceflow_app.app.HistoryStore"):
+        with patch("aylo_app.app.load_settings") as load_settings, patch("aylo_app.app.HistoryStore"):
             settings = load_settings.return_value
             settings.samplerate = 16000
             settings.mic_device = 1
@@ -37,11 +37,11 @@ class AppSettingsTests(unittest.TestCase):
             settings.silence_rms_threshold = 0.002
             settings.mouse_side_button_mic = False
             settings.mouse_forward_action = "command"
-            app = VoiceFlowApp()
+            app = AyloApp()
         app.state.stream = object()
         app.hotkeys = Mock()
 
-        with patch("voiceflow_app.app.save_settings") as save_settings:
+        with patch("aylo_app.app.save_settings") as save_settings:
             app.apply_settings(
                 mic_device=1,
                 silence_rms_threshold=0.005,

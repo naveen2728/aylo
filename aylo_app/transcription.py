@@ -42,7 +42,7 @@ def transcribe_frames(model, frames, samplerate, min_record_seconds=0.3, silence
     import numpy as np
 
     if not frames:
-        raise AudioQualityError("No audio captured. VoiceFlow will refresh the microphone automatically.", "no_signal")
+        raise AudioQualityError("No audio captured. Aylo will refresh the microphone automatically.", "no_signal")
     audio = np.concatenate(frames, axis=0).flatten().astype(np.float32)
     duration_seconds = len(audio) / samplerate
     if duration_seconds < min_record_seconds:
@@ -54,7 +54,7 @@ def transcribe_frames(model, frames, samplerate, min_record_seconds=0.3, silence
     max_value = float(np.max(np.abs(audio)))
     if max_value == 0:
         raise AudioQualityError(
-            "No microphone signal detected. VoiceFlow will refresh the microphone; retry once.",
+            "No microphone signal detected. Aylo will refresh the microphone; retry once.",
             "no_signal",
             rms=0.0,
             peak=0.0,
@@ -78,7 +78,7 @@ def transcribe_frames(model, frames, samplerate, min_record_seconds=0.3, silence
     options = {
         "language": "en",
         # A wider search makes the bundled offline Whisper model more accurate
-        # for short commands and varied accents. VoiceFlow records on demand,
+        # for short commands and varied accents. Aylo records on demand,
         # so the small extra processing time is preferable to a wrong paste.
         "beam_size": 5,
         "condition_on_previous_text": False,

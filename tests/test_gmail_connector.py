@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from voiceflow_app.gmail_connector import create_gmail_draft, gmail_status, send_gmail_message, sender_email, sync_gmail_knowledge, sync_recent_gmail
+from aylo_app.gmail_connector import create_gmail_draft, gmail_status, send_gmail_message, sender_email, sync_gmail_knowledge, sync_recent_gmail
 
 
 class GmailConnectorTests(unittest.TestCase):
@@ -9,7 +9,7 @@ class GmailConnectorTests(unittest.TestCase):
         index = Mock()
         index.count_messages.return_value = 3
         index.latest_sync.return_value = "2026-06-01T10:00:00+00:00"
-        with patch("voiceflow_app.gmail_connector.is_connected", return_value=True):
+        with patch("aylo_app.gmail_connector.is_connected", return_value=True):
             status = gmail_status(index)
         self.assertIn("connected", status)
         self.assertIn("3 messages", status)
@@ -25,7 +25,7 @@ class GmailConnectorTests(unittest.TestCase):
             "payload": {"headers": [{"name": "Subject", "value": "Hello"}]},
         }
         index = Mock()
-        with patch("voiceflow_app.gmail_connector.get_credentials", return_value=object()), patch("voiceflow_app.gmail_connector._build_service", return_value=service):
+        with patch("aylo_app.gmail_connector.get_credentials", return_value=object()), patch("aylo_app.gmail_connector._build_service", return_value=service):
             count = sync_recent_gmail(index=index)
         self.assertEqual(count, 1)
         index.upsert_messages.assert_called_once()
@@ -54,7 +54,7 @@ class GmailConnectorTests(unittest.TestCase):
         ]
         index = Mock()
         queries = [("important", "is:important", 10), ("starred", "is:starred", 10)]
-        with patch("voiceflow_app.gmail_connector.get_credentials", return_value=object()), patch("voiceflow_app.gmail_connector._build_service", return_value=service):
+        with patch("aylo_app.gmail_connector.get_credentials", return_value=object()), patch("aylo_app.gmail_connector._build_service", return_value=service):
             count = sync_gmail_knowledge(index=index, queries=queries)
         self.assertEqual(count, 2)
         indexed_messages = [
@@ -70,7 +70,7 @@ class GmailConnectorTests(unittest.TestCase):
     def test_create_gmail_draft_calls_gmail_api(self):
         service = Mock()
         service.users.return_value.drafts.return_value.create.return_value.execute.return_value = {"id": "draft-1"}
-        with patch("voiceflow_app.gmail_connector.get_credentials", return_value=object()), patch("voiceflow_app.gmail_connector._build_service", return_value=service):
+        with patch("aylo_app.gmail_connector.get_credentials", return_value=object()), patch("aylo_app.gmail_connector._build_service", return_value=service):
             draft_id = create_gmail_draft("client@example.com", "Hello", "Draft body", thread_id="thread-1")
         self.assertEqual(draft_id, "draft-1")
         body = service.users.return_value.drafts.return_value.create.call_args.kwargs["body"]
@@ -80,7 +80,7 @@ class GmailConnectorTests(unittest.TestCase):
     def test_send_gmail_message_calls_gmail_api(self):
         service = Mock()
         service.users.return_value.messages.return_value.send.return_value.execute.return_value = {"id": "sent-1"}
-        with patch("voiceflow_app.gmail_connector.get_credentials", return_value=object()), patch("voiceflow_app.gmail_connector._build_service", return_value=service):
+        with patch("aylo_app.gmail_connector.get_credentials", return_value=object()), patch("aylo_app.gmail_connector._build_service", return_value=service):
             sent_id = send_gmail_message("client@example.com", "Hello", "Reply body", thread_id="thread-1")
         self.assertEqual(sent_id, "sent-1")
         body = service.users.return_value.messages.return_value.send.call_args.kwargs["body"]

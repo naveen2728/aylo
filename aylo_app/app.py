@@ -70,7 +70,7 @@ def enable_dpi_awareness():
         pass
 
 
-class VoiceFlowApp:
+class AyloApp:
     def __init__(self):
         self.state = RuntimeState(load_settings())
         self.overlay = None
@@ -158,12 +158,12 @@ class VoiceFlowApp:
         self.state.ai_cleanup = True
 
     def _acquire_single_instance(self):
-        self.mutex = ctypes.windll.kernel32.CreateMutexW(None, False, r"Local\VoiceFlow_SingleInstance")
+        self.mutex = ctypes.windll.kernel32.CreateMutexW(None, False, r"Local\Aylo_SingleInstance")
         last_error = ctypes.windll.kernel32.GetLastError()
         if not self.mutex:
-            raise RuntimeError("Could not create VoiceFlow single-instance lock.")
+            raise RuntimeError("Could not create Aylo single-instance lock.")
         if last_error == 183:
-            ctypes.windll.user32.MessageBoxW(0, "VoiceFlow is already running.", "VoiceFlow", 0x30)
+            ctypes.windll.user32.MessageBoxW(0, "Aylo is already running.", "Aylo", 0x30)
             raise SystemExit(1)
 
     def _load_services(self):
@@ -201,7 +201,7 @@ class VoiceFlowApp:
         except Exception as exc:
             self.log_error("Startup failed", exc)
             self.startup_error = str(exc)
-            ctypes.windll.user32.MessageBoxW(0, str(exc), "VoiceFlow", 0x10)
+            ctypes.windll.user32.MessageBoxW(0, str(exc), "Aylo", 0x10)
         finally:
             splash.win.after(0, splash.close)
 
@@ -813,7 +813,7 @@ class VoiceFlowApp:
         key = key.strip().strip("\"'")
         if not key.startswith("gsk_"):
             messagebox.showerror(
-                "VoiceFlow",
+                "Aylo",
                 "This does not look like a Groq API key. Copy a key beginning with gsk_.",
                 parent=self.overlay.root,
             )
@@ -823,12 +823,12 @@ class VoiceFlowApp:
             save_api_key(key)
             self.state.client = client
             self.state.ai_cleanup = True
-            messagebox.showinfo("VoiceFlow", "Groq API key connected and saved securely.", parent=self.overlay.root)
+            messagebox.showinfo("Aylo", "Groq API key connected and saved securely.", parent=self.overlay.root)
         except Exception as exc:
             self.state.client = None
             self.state.ai_cleanup = False
             self.log_error("Groq API key update failed", exc)
-            messagebox.showerror("VoiceFlow", ai_client.friendly_generation_error(exc), parent=self.overlay.root)
+            messagebox.showerror("Aylo", ai_client.friendly_generation_error(exc), parent=self.overlay.root)
 
     def change_image_api_key(self):
         key = simpledialog.askstring("Update Image API Key", "Paste your Pollinations API key:", show="*", parent=self.overlay.root)
@@ -836,10 +836,10 @@ class VoiceFlowApp:
             return
         try:
             save_image_api_key(key.strip())
-            messagebox.showinfo("VoiceFlow", "Image API key updated.", parent=self.overlay.root)
+            messagebox.showinfo("Aylo", "Image API key updated.", parent=self.overlay.root)
         except Exception as exc:
             self.log_error("Image API key save failed", exc)
-            messagebox.showerror("VoiceFlow", f"Failed: {exc}", parent=self.overlay.root)
+            messagebox.showerror("Aylo", f"Failed: {exc}", parent=self.overlay.root)
 
     def change_openai_realtime_api_key(self):
         key = simpledialog.askstring(
@@ -852,10 +852,10 @@ class VoiceFlowApp:
             return
         try:
             save_openai_realtime_api_key(key.strip())
-            messagebox.showinfo("VoiceFlow", "Realtime voice API key updated.", parent=self.overlay.root)
+            messagebox.showinfo("Aylo", "Realtime voice API key updated.", parent=self.overlay.root)
         except Exception as exc:
             self.log_error("OpenAI Realtime API key save failed", exc)
-            messagebox.showerror("VoiceFlow", f"Failed: {exc}", parent=self.overlay.root)
+            messagebox.showerror("Aylo", f"Failed: {exc}", parent=self.overlay.root)
 
     def reconnect_ai(self):
         try:
@@ -926,22 +926,22 @@ class VoiceFlowApp:
     def finish_onboarding(self):
         self.state.settings.first_run_complete = True
         save_settings(self.state.settings)
-        self.show_toast("VoiceFlow setup complete.")
+        self.show_toast("Aylo setup complete.")
 
     def open_subscription(self):
         try:
             if open_checkout():
-                self.show_toast("Opening VoiceFlow pricing...")
+                self.show_toast("Opening Aylo pricing...")
             else:
                 messagebox.showinfo(
-                    "VoiceFlow Plus",
+                    "Aylo Plus",
                     "This open-source build has no checkout page configured.",
                     parent=self.overlay.root,
                 )
         except Exception as exc:
             self.log_error("Open subscription page failed", exc)
             messagebox.showinfo(
-                "VoiceFlow Plus",
+                "Aylo Plus",
                 f"Open this page to upgrade:\n\n{checkout_url()}",
                 parent=self.overlay.root,
             )
@@ -951,7 +951,7 @@ class VoiceFlowApp:
             devices = list_input_devices()
         except Exception as exc:
             self.log_error("Microphone discovery failed", exc)
-            messagebox.showerror("VoiceFlow Settings", f"Could not list microphones: {exc}", parent=self.overlay.root)
+            messagebox.showerror("Aylo Settings", f"Could not list microphones: {exc}", parent=self.overlay.root)
             return
         SettingsWindow(
             self.overlay.root,
@@ -1031,7 +1031,7 @@ class VoiceFlowApp:
             self.show_toast("Could not copy recent result.")
 
     def clear_history(self):
-        if not messagebox.askyesno("VoiceFlow", "Clear all recent results?", parent=self.overlay.root):
+        if not messagebox.askyesno("Aylo", "Clear all recent results?", parent=self.overlay.root):
             return
         try:
             self.history.clear()
@@ -1069,7 +1069,7 @@ class VoiceFlowApp:
             self.set_orb("idle")
 
     def disconnect_gmail(self):
-        if not messagebox.askyesno("VoiceFlow", "Disconnect Gmail and remove the saved OAuth token?", parent=self.overlay.root):
+        if not messagebox.askyesno("Aylo", "Disconnect Gmail and remove the saved OAuth token?", parent=self.overlay.root):
             return
         try:
             disconnect_gmail()
@@ -1150,15 +1150,15 @@ class VoiceFlowApp:
         directory = os.path.join(appdata_dir(), "screenshots")
         os.makedirs(directory, exist_ok=True)
         path = os.path.join(directory, f"screen-{int(time.time())}.png")
-        windows = self._hide_voiceflow_windows_for_capture()
+        windows = self._hide_aylo_windows_for_capture()
         try:
             image = pyautogui.screenshot()
             image.save(path)
         finally:
-            self._restore_voiceflow_windows(windows)
+            self._restore_aylo_windows(windows)
         return path
 
-    def _hide_voiceflow_windows_for_capture(self):
+    def _hide_aylo_windows_for_capture(self):
         if not self.overlay:
             return []
         windows = []
@@ -1183,7 +1183,7 @@ class VoiceFlowApp:
             time.sleep(0.2)
         return windows
 
-    def _restore_voiceflow_windows(self, windows):
+    def _restore_aylo_windows(self, windows):
         for window, state in windows:
             if state == "withdrawn":
                 continue
@@ -1270,7 +1270,7 @@ class VoiceFlowApp:
         if not draft_body.strip():
             self.show_toast("Draft is empty.")
             return
-        if not messagebox.askyesno("VoiceFlow", "Create this reply as a Gmail draft? It will not be sent.", parent=self.overlay.root):
+        if not messagebox.askyesno("Aylo", "Create this reply as a Gmail draft? It will not be sent.", parent=self.overlay.root):
             return
         threading.Thread(target=self._create_gmail_draft, args=(message_id, draft_body.strip()), daemon=True).start()
 
@@ -1334,7 +1334,7 @@ class VoiceFlowApp:
     def custom_rewrite(self):
         instruction = simpledialog.askstring(
             "Custom Clipboard Rewrite",
-            "What should VoiceFlow do with the copied content?\n\n"
+            "What should Aylo do with the copied content?\n\n"
             "Example: Turn this into meeting notes with action items.",
             parent=self.overlay.root,
         )
@@ -1409,4 +1409,4 @@ class VoiceFlowApp:
 
 
 def main():
-    VoiceFlowApp().run()
+    AyloApp().run()
