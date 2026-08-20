@@ -58,6 +58,9 @@ yarn-debug.log*
 # Editors and operating systems
 .idea/
 .vscode/
+local.properties
+**/.gradle/
+**/build/
 *.swp
 *.swo
 .DS_Store

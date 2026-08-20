@@ -1,0 +1,57 @@
+name: Build Android prototype APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "mobile/android/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 35 build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "8.10"
+          cache-provider: basic
+
+      - name: Configure internal test build
+        working-directory: mobile/android
+        run: |
+          cat > local.properties <<'EOF'
+          AYLOO_API_BASE_URL=${{ secrets.AYLOO_API_BASE_URL }}
+          AYLOO_TESTER_TOKEN=${{ secrets.AYLOO_TESTER_TOKEN }}
+          EOF
+
+      - name: Assemble debug APK
+        working-directory: mobile/android
+        run: gradle :app:assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ayloo-keyboard-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

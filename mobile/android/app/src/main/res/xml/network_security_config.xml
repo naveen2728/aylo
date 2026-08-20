@@ -1,0 +1,6 @@
+<network-security-config>
+    <!-- Enables the documented Android-emulator development URL only; deployed backends require HTTPS. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

@@ -1,0 +1,21 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:allowBackup="false"
+        android:label="Ayloo Keyboard"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/Theme.Ayloo">
+        <service
+            android:name=".AylooInputMethodService"
+            android:exported="true"
+            android:label="Ayloo Keyboard"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data android:name="android.view.im" android:resource="@xml/method" />
+        </service>
+        <activity android:name=".PermissionActivity" android:exported="false" android:theme="@style/Theme.Ayloo.Transparent" />
+    </application>
+</manifest>
