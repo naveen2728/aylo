@@ -34,7 +34,7 @@ class CommandApi(
             .post(body)
             .build()
         client.newCall(request).execute().use { response ->
-            val responseBody = response.body.string()
+            val responseBody = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
                 val detail = runCatching { JSONObject(responseBody).optString("detail") }.getOrDefault("")
                 throw IOException(detail.ifBlank { "Ayloo could not process this command (${response.code})." })
