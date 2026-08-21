@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ayloo-mobile-relay
+    runtime: python
+    plan: free
+    rootDir: mobile/backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: AYLOO_TESTER_TOKENS
+        sync: false

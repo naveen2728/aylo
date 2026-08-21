@@ -30,10 +30,11 @@ class AylooInputMethodService : InputMethodService() {
     private lateinit var pendingStore: PendingCommandStore
     private var recorder: MediaRecorder? = null
     private var activeAudio: File? = null
+    private var activeMode = VoiceMode.DICTATE
     private var recordingStartedAtMs = 0L
     private var stopRecording: Runnable? = null
     private var orbState by mutableStateOf(OrbState.IDLE)
-    private var status by mutableStateOf("Tap the orb to speak an AI command")
+    private var status by mutableStateOf("Choose Dictate or AI Command, then tap the orb.")
     private var symbols by mutableStateOf(false)
     private var uppercase by mutableStateOf(false)
 
@@ -50,9 +51,11 @@ class AylooInputMethodService : InputMethodService() {
                 status = status,
                 symbols = symbols,
                 uppercase = uppercase,
+                voiceMode = activeMode,
                 onOrb = ::onOrbTapped,
                 onRetry = ::retryPending,
                 onDiscard = ::discardPending,
+                onModeSelected = ::selectMode,
                 onKey = ::commitKey,
                 onBackspace = ::backspace,
                 onSymbols = { symbols = !symbols },
@@ -70,6 +73,13 @@ class AylooInputMethodService : InputMethodService() {
             OrbState.RECORDING -> finishRecordingAndSubmit()
             OrbState.RETRY -> retryPending()
             OrbState.PROCESSING -> Unit
+        }
+    }
+
+    private fun selectMode(mode: VoiceMode) {
+        if (orbState == OrbState.IDLE || orbState == OrbState.SUCCESS || orbState == OrbState.ERROR) {
+            activeMode = mode
+            status = if (mode == VoiceMode.DICTATE) "Dictate selected. Tap the orb to speak." else "AI Command selected. Tap the orb to speak."
         }
     }
 
@@ -96,7 +106,7 @@ class AylooInputMethodService : InputMethodService() {
             activeAudio = target
             recordingStartedAtMs = SystemClock.elapsedRealtime()
             orbState = OrbState.RECORDING
-            status = "Listening… tap the orb when you are done."
+            status = if (activeMode == VoiceMode.DICTATE) "Dictating… tap the orb when you are done." else "Listening for an AI command… tap the orb when you are done."
             stopRecording = Runnable { if (orbState == OrbState.RECORDING) finishRecordingAndSubmit() }.also {
                 mainHandler.postDelayed(it, MAX_RECORDING_MS)
             }
@@ -120,21 +130,21 @@ class AylooInputMethodService : InputMethodService() {
             status = "That recording was too short. Please try again."
             return
         }
-        submit(audio, (SystemClock.elapsedRealtime() - recordingStartedAtMs).coerceIn(1L, MAX_RECORDING_MS))
+        submit(audio, (SystemClock.elapsedRealtime() - recordingStartedAtMs).coerceIn(1L, MAX_RECORDING_MS), activeMode)
     }
 
-    private fun submit(audio: File, durationMs: Long = MAX_RECORDING_MS) {
+    private fun submit(audio: File, durationMs: Long = MAX_RECORDING_MS, mode: VoiceMode = activeMode) {
         orbState = OrbState.PROCESSING
-        status = "Turning your command into text…"
+        status = if (mode == VoiceMode.DICTATE) "Transcribing…" else "Turning your command into text…"
         executor.execute {
             try {
-                val response = CommandApi().execute(audio, durationMs)
+                val response = CommandApi().execute(audio, durationMs, mode)
                 mainHandler.post {
-                    copyAndInsert(response.result)
+                    if (mode == VoiceMode.DICTATE) insertOnly(response.transcript) else copyAndInsert(response.result)
                     pendingStore.discard(audio)
                     activeAudio = null
                     orbState = OrbState.SUCCESS
-                    status = "Inserted and copied."
+                    status = if (mode == VoiceMode.DICTATE) "Transcript inserted." else "Answer inserted and copied."
                 }
             } catch (exception: Exception) {
                 mainHandler.post {
@@ -146,7 +156,7 @@ class AylooInputMethodService : InputMethodService() {
         }
     }
 
-    private fun retryPending() { pendingStore.pending()?.let { submit(it) } ?: run { orbState = OrbState.IDLE; status = "No pending command." } }
+    private fun retryPending() { pendingStore.pending()?.let { submit(it, mode = activeMode) } ?: run { orbState = OrbState.IDLE; status = "No pending recording." } }
     private fun discardPending() {
         pendingStore.discard(pendingStore.pending())
         activeAudio = null
@@ -159,6 +169,8 @@ class AylooInputMethodService : InputMethodService() {
             .setPrimaryClip(ClipData.newPlainText("Ayloo command", text))
         currentInputConnection?.commitText(text, 1)
     }
+
+    private fun insertOnly(text: String) { currentInputConnection?.commitText(text, 1) }
 
     private fun commitKey(key: String) {
         currentInputConnection?.commitText(key, 1)

@@ -8,6 +8,7 @@ import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Literal
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -106,6 +107,7 @@ def create_app(settings: Settings | None = None, groq_client=None) -> FastAPI:
     async def command(
         audio: UploadFile = File(...),
         duration_ms: int = Form(...),
+        mode: Literal["dictate", "command"] = Form(...),
         _tester: str = Depends(authorize),
     ):
         if not 250 <= duration_ms <= MAX_AUDIO_DURATION_MS:
@@ -125,6 +127,9 @@ def create_app(settings: Settings | None = None, groq_client=None) -> FastAPI:
             transcript = (getattr(transcript_response, "text", "") or "").strip()
             if not transcript:
                 raise HTTPException(422, "No speech was recognized. Please speak for a little longer.")
+            if mode == "dictate":
+                LOG.info("dictation completed", extra={"audio_bytes": len(payload), "duration_ms": duration_ms})
+                return {"transcript": transcript, "result": transcript}
             completion = app.state.groq.chat.completions.create(
                 model=app.state.settings.command_model,
                 max_tokens=1024,
@@ -133,7 +138,7 @@ def create_app(settings: Settings | None = None, groq_client=None) -> FastAPI:
             result = clean_output(completion.choices[0].message.content)
             if not result:
                 raise HTTPException(502, "The AI did not return a usable response. Please retry.")
-            LOG.info("command completed", extra={"audio_bytes": len(payload)})
+            LOG.info("command completed", extra={"audio_bytes": len(payload), "duration_ms": duration_ms})
             return {"transcript": transcript, "result": result}
         except HTTPException:
             raise

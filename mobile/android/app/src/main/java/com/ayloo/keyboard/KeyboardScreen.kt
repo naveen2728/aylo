@@ -29,9 +29,11 @@ fun KeyboardScreen(
     status: String,
     symbols: Boolean,
     uppercase: Boolean,
+    voiceMode: VoiceMode,
     onOrb: () -> Unit,
     onRetry: () -> Unit,
     onDiscard: () -> Unit,
+    onModeSelected: (VoiceMode) -> Unit,
     onKey: (String) -> Unit,
     onBackspace: () -> Unit,
     onSymbols: () -> Unit,
@@ -48,6 +50,10 @@ fun KeyboardScreen(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(status, color = Color.White, fontSize = 12.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                ModeButton("Dictate", voiceMode == VoiceMode.DICTATE, Modifier.weight(1f)) { onModeSelected(VoiceMode.DICTATE) }
+                ModeButton("AI Command", voiceMode == VoiceMode.COMMAND, Modifier.weight(1f)) { onModeSelected(VoiceMode.COMMAND) }
+            }
             if (orbState == OrbState.RETRY) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                     KeyboardButton("Retry", Modifier.weight(1f), onRetry)
@@ -70,6 +76,16 @@ fun KeyboardScreen(
             }
         }
     }
+}
+
+@Composable
+private fun ModeButton(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(38.dp),
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = if (selected) OrbColor else KeyBackground, contentColor = Color.White),
+    ) { Text(label, fontSize = 13.sp) }
 }
 
 @Composable
