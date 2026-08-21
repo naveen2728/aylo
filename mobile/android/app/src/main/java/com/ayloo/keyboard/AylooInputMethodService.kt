@@ -19,12 +19,23 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.ViewTreeLifecycleOwner
 import java.io.File
 import java.util.concurrent.Executors
 
 enum class OrbState { IDLE, RECORDING, PROCESSING, SUCCESS, RETRY, ERROR }
 
-class AylooInputMethodService : InputMethodService() {
+/**
+ * InputMethodService is not a LifecycleOwner. Compose requires a stable owner in
+ * its view tree, otherwise opening the IME crashes before the keyboard is drawn.
+ */
+class AylooInputMethodService : InputMethodService(), LifecycleOwner {
+    private val serviceLifecycle = LifecycleRegistry(this)
+    override val lifecycle: Lifecycle
+        get() = serviceLifecycle
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var pendingStore: PendingCommandStore
@@ -40,11 +51,15 @@ class AylooInputMethodService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        // The IME view can be shown independently from an Activity, so keep its
+        // composition active for the life of this service.
+        serviceLifecycle.currentState = Lifecycle.State.RESUMED
         pendingStore = PendingCommandStore(this)
     }
 
     override fun onCreateInputView(): View = ComposeView(this).apply {
-        setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+        ViewTreeLifecycleOwner.set(this, this@AylooInputMethodService)
+        setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnLifecycleDestroyed(serviceLifecycle))
         setContent {
             KeyboardScreen(
                 orbState = orbState,
@@ -191,6 +206,7 @@ class AylooInputMethodService : InputMethodService() {
         stopRecording?.let(mainHandler::removeCallbacks)
         recorder?.release()
         executor.shutdownNow()
+        serviceLifecycle.currentState = Lifecycle.State.DESTROYED
         super.onDestroy()
     }
 
