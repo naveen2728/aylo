@@ -18,9 +18,11 @@ import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import java.io.File
+import java.util.ArrayDeque
 import java.util.concurrent.Executors
 
 enum class OrbState { IDLE, RECORDING, PROCESSING, SUCCESS, RETRY, ERROR }
@@ -33,6 +35,8 @@ class AylooInputMethodService : InputMethodService() {
     private var recorder: MediaRecorder? = null
     private var activeAudio: File? = null
     private var keyboardRoot: LinearLayout? = null
+    // Session-only history: text never leaves the device and is cleared if Android stops the IME.
+    private val aylooClipboard = ArrayDeque<String>()
     private var activeMode = VoiceMode.DICTATE
         set(value) { field = value; refreshKeyboard() }
     private var recordingStartedAtMs = 0L
@@ -76,28 +80,82 @@ class AylooInputMethodService : InputMethodService() {
         root.addView(row().also {
             addButton(it, "Dictate", 1f, 38, activeMode == VoiceMode.DICTATE) { selectDictate() }
             addButton(it, "AI Command", 1f, 38, activeMode == VoiceMode.COMMAND) { selectCommand() }
+            addButton(it, orbLabel(), 1f, 38, true, orbState != OrbState.PROCESSING) { onOrbTapped() }
         })
         if (orbState == OrbState.RETRY) root.addView(row().also {
             addButton(it, "Retry", 1f, 42, false) { retryPending() }
             addButton(it, "Discard", 1f, 42, false) { discardPending() }
         })
-        val letters = if (uppercase) listOf("QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM") else listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
-        val rows = if (symbols) listOf("1234567890", "-/:;()₹&@\"", "#+=!?.,") else letters
-        rows.forEach { chars -> root.addView(row().also { keyboardRow ->
-            chars.forEach { char -> addButton(keyboardRow, char.toString(), 1f, 48, false) { commitKey(char.toString()) } }
-        }) }
+        addClipboardStrip(root)
+        if (symbols) addSymbolKeys(root) else addLetterKeys(root)
+    }
+
+    private fun addClipboardStrip(root: LinearLayout) {
+        if (aylooClipboard.isEmpty()) return
+        val clips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        clips.addView(TextView(this).apply {
+            text = "Ayloo clips"
+            setTextColor(Color.rgb(212, 208, 224))
+            textSize = 12f
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(6), 0, dp(4), 0)
+        }, LinearLayout.LayoutParams(dp(72), dp(38)))
+        aylooClipboard.take(4).forEach { clip ->
+            addClipboardButton(clips, clip) { currentInputConnection?.commitText(clip, 1) }
+        }
+        addClipboardButton(clips, "Clear") { aylooClipboard.clear(); refreshKeyboard() }
+        root.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(clips)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)))
+    }
+
+    private fun addLetterKeys(root: LinearLayout) {
+        addCharacterRow(root, if (uppercase) "QWERTYUIOP" else "qwertyuiop")
+        root.addView(row().also { middle ->
+            addSpacer(middle, .45f)
+            (if (uppercase) "ASDFGHJKL" else "asdfghjkl").forEach { char -> addButton(middle, char.toString(), 1f, 48, false) { commitKey(char.toString()) } }
+            addSpacer(middle, .45f)
+        })
+        root.addView(row().also { bottomLetters ->
+            addButton(bottomLetters, if (uppercase) "⇧" else "⇧", 1.45f, 48, uppercase) { uppercase = !uppercase }
+            (if (uppercase) "ZXCVBNM" else "zxcvbnm").forEach { char -> addButton(bottomLetters, char.toString(), 1f, 48, false) { commitKey(char.toString()) } }
+            addButton(bottomLetters, "⌫", 1.45f, 48, false) { backspace() }
+        })
+        addBottomRow(root)
+    }
+
+    private fun addSymbolKeys(root: LinearLayout) {
+        addCharacterRow(root, "1234567890")
+        addCharacterRow(root, "@#₹_&-+()")
+        root.addView(row().also { symbolsRow ->
+            addButton(symbolsRow, "\\", 1.5f, 48, false) { commitKey("\\") }
+            "*\"':;!?".forEach { char -> addButton(symbolsRow, char.toString(), 1f, 48, false) { commitKey(char.toString()) } }
+            addButton(symbolsRow, "⌫", 1.5f, 48, false) { backspace() }
+        })
+        addBottomRow(root)
+    }
+
+    private fun addCharacterRow(root: LinearLayout, characters: String) {
+        root.addView(row().also { keyRow ->
+            characters.forEach { char -> addButton(keyRow, char.toString(), 1f, 48, false) { commitKey(char.toString()) } }
+        })
+    }
+
+    private fun addBottomRow(root: LinearLayout) {
         root.addView(row().also {
-            addButton(it, if (symbols) "ABC" else "123", 1.1f, 48, false) { symbols = !symbols }
-            addButton(it, "⇧", .9f, 48, false) { uppercase = !uppercase }
-            addButton(it, "⌫", 1.1f, 48, false) { backspace() }
-            addButton(it, orbLabel(), 1.4f, 48, true, orbState != OrbState.PROCESSING) { onOrbTapped() }
-            addButton(it, "space", 3f, 48, false) { commitKey(" ") }
-            addButton(it, "↵", 1.1f, 48, false) { enter() }
-            addButton(it, "⌨", 1.1f, 48, false) { switchKeyboard() }
+            addButton(it, if (symbols) "ABC" else "123", 1.35f, 48, false) { symbols = !symbols }
+            addButton(it, ",", 1f, 48, false) { commitKey(",") }
+            addButton(it, "space", 3.9f, 48, false) { commitKey(" ") }
+            addButton(it, ".", 1f, 48, false) { commitKey(".") }
+            addButton(it, "↵", 1.35f, 48, false) { enter() }
         })
     }
 
     private fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+    private fun addSpacer(row: LinearLayout, weight: Float) {
+        row.addView(View(this), LinearLayout.LayoutParams(0, dp(48), weight))
+    }
     private fun selectDictate() = selectMode(VoiceMode.DICTATE)
     private fun selectCommand() = selectMode(VoiceMode.COMMAND)
     private fun orbLabel() = when (orbState) {
@@ -119,6 +177,20 @@ class AylooInputMethodService : InputMethodService() {
             }
             setOnClickListener { onClick() }
         }, LinearLayout.LayoutParams(0, dp(height), weight).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+    }
+    private fun addClipboardButton(row: LinearLayout, value: String, onClick: () -> Unit) {
+        val label = if (value.length > 18) value.take(18) + "…" else value
+        row.addView(Button(this).apply {
+            text = label
+            textSize = 12f
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(Color.rgb(61, 58, 73))
+            }
+            setOnClickListener { onClick() }
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(34)).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
     }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
@@ -222,16 +294,40 @@ class AylooInputMethodService : InputMethodService() {
     private fun copyAndInsert(text: String) {
         (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
             .setPrimaryClip(ClipData.newPlainText("Ayloo command", text))
+        saveToAylooClipboard(text)
         currentInputConnection?.commitText(text, 1)
     }
 
-    private fun insertOnly(text: String) { currentInputConnection?.commitText(text, 1) }
+    private fun insertOnly(text: String) {
+        saveToAylooClipboard(text)
+        currentInputConnection?.commitText(text, 1)
+    }
+
+    private fun saveToAylooClipboard(text: String) {
+        val normalized = text.trim()
+        if (normalized.isEmpty()) return
+        aylooClipboard.remove(normalized)
+        aylooClipboard.addFirst(normalized)
+        while (aylooClipboard.size > MAX_CLIPBOARD_ITEMS) aylooClipboard.removeLast()
+        refreshKeyboard()
+    }
 
     private fun commitKey(key: String) {
         currentInputConnection?.commitText(key, 1)
         if (!symbols && uppercase) uppercase = false
     }
-    private fun backspace() { currentInputConnection?.deleteSurroundingText(1, 0) }
+    /** One tap deletes exactly one character, with a fallback for editors that reject code-point deletion. */
+    private fun backspace() {
+        val connection = currentInputConnection ?: return
+        connection.beginBatchEdit()
+        try {
+            if (!connection.deleteSurroundingTextInCodePoints(1, 0)) {
+                connection.deleteSurroundingText(1, 0)
+            }
+        } finally {
+            connection.endBatchEdit()
+        }
+    }
     private fun enter() { currentInputConnection?.commitText("\n", 1) }
 
     private fun switchKeyboard() {
@@ -252,5 +348,6 @@ class AylooInputMethodService : InputMethodService() {
     private companion object {
         const val MAX_RECORDING_MS = 30_000L
         const val MIN_AUDIO_BYTES = 1_000L
+        const val MAX_CLIPBOARD_ITEMS = 8
     }
 }
