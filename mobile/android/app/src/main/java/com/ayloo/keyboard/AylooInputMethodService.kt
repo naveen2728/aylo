@@ -43,7 +43,7 @@ class AylooInputMethodService : InputMethodService() {
     }
 
     override fun onCreateInputView(): View = ComposeView(this).apply {
-        setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
         setContent {
             KeyboardScreen(
                 orbState = orbState,
