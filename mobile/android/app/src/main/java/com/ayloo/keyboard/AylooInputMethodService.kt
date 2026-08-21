@@ -74,12 +74,12 @@ class AylooInputMethodService : InputMethodService() {
             gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(28)))
         root.addView(row().also {
-            addButton(it, "Dictate", 1f, 38, activeMode == VoiceMode.DICTATE, ::selectDictate)
-            addButton(it, "AI Command", 1f, 38, activeMode == VoiceMode.COMMAND, ::selectCommand)
+            addButton(it, "Dictate", 1f, 38, activeMode == VoiceMode.DICTATE) { selectDictate() }
+            addButton(it, "AI Command", 1f, 38, activeMode == VoiceMode.COMMAND) { selectCommand() }
         })
         if (orbState == OrbState.RETRY) root.addView(row().also {
-            addButton(it, "Retry", 1f, 42, false, ::retryPending)
-            addButton(it, "Discard", 1f, 42, false, ::discardPending)
+            addButton(it, "Retry", 1f, 42, false) { retryPending() }
+            addButton(it, "Discard", 1f, 42, false) { discardPending() }
         })
         val letters = if (uppercase) listOf("QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM") else listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
         val rows = if (symbols) listOf("1234567890", "-/:;()₹&@\"", "#+=!?.,") else letters
@@ -89,11 +89,11 @@ class AylooInputMethodService : InputMethodService() {
         root.addView(row().also {
             addButton(it, if (symbols) "ABC" else "123", 1.1f, 48, false) { symbols = !symbols }
             addButton(it, "⇧", .9f, 48, false) { uppercase = !uppercase }
-            addButton(it, "⌫", 1.1f, 48, false, ::backspace)
-            addButton(it, orbLabel(), 1.4f, 48, true, ::onOrbTapped, orbState != OrbState.PROCESSING)
+            addButton(it, "⌫", 1.1f, 48, false) { backspace() }
+            addButton(it, orbLabel(), 1.4f, 48, true, orbState != OrbState.PROCESSING) { onOrbTapped() }
             addButton(it, "space", 3f, 48, false) { commitKey(" ") }
-            addButton(it, "↵", 1.1f, 48, false, ::enter)
-            addButton(it, "⌨", 1.1f, 48, false, ::switchKeyboard)
+            addButton(it, "↵", 1.1f, 48, false) { enter() }
+            addButton(it, "⌨", 1.1f, 48, false) { switchKeyboard() }
         })
     }
 
@@ -106,7 +106,7 @@ class AylooInputMethodService : InputMethodService() {
         OrbState.PROCESSING -> "…"
         OrbState.RETRY -> "↻ Retry"
     }
-    private fun addButton(row: LinearLayout, label: String, weight: Float, height: Int, selected: Boolean, onClick: () -> Unit, enabled: Boolean = true) {
+    private fun addButton(row: LinearLayout, label: String, weight: Float, height: Int, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
         row.addView(Button(this).apply {
             text = label
             textSize = 14f
