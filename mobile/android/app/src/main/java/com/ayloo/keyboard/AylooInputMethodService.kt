@@ -76,6 +76,7 @@ class AylooInputMethodService : InputMethodService() {
             setTextColor(Color.WHITE)
             textSize = 12f
             gravity = Gravity.CENTER
+            maxLines = 1
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(28)))
         root.addView(row().also {
             addButton(it, "Dictate", 1f, 38, activeMode == VoiceMode.DICTATE) { selectDictate() }
@@ -144,11 +145,12 @@ class AylooInputMethodService : InputMethodService() {
 
     private fun addBottomRow(root: LinearLayout) {
         root.addView(row().also {
-            addButton(it, if (symbols) "ABC" else "123", 1.35f, 48, false) { symbols = !symbols }
-            addButton(it, ",", 1f, 48, false) { commitKey(",") }
-            addButton(it, "space", 3.9f, 48, false) { commitKey(" ") }
-            addButton(it, ".", 1f, 48, false) { commitKey(".") }
-            addButton(it, "↵", 1.35f, 48, false) { enter() }
+            addButton(it, if (symbols) "ABC" else "123", 1.2f, 48, false) { symbols = !symbols }
+            addButton(it, ",", .8f, 48, false) { commitKey(",") }
+            addButton(it, "space", 3.2f, 48, false) { commitKey(" ") }
+            addButton(it, ".", .8f, 48, false) { commitKey(".") }
+            addButton(it, "⌨", 1.1f, 48, false) { switchKeyboard() }
+            addButton(it, "↵", 1.2f, 48, false) { enter() }
         })
     }
 
@@ -170,6 +172,11 @@ class AylooInputMethodService : InputMethodService() {
             textSize = 14f
             isAllCaps = false
             isEnabled = enabled
+            minimumWidth = 0
+            minimumHeight = 0
+            minWidth = 0
+            minHeight = 0
+            setPadding(dp(2), 0, dp(2), 0)
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
                 cornerRadius = dp(8).toFloat()
@@ -184,6 +191,11 @@ class AylooInputMethodService : InputMethodService() {
             text = label
             textSize = 12f
             isAllCaps = false
+            minimumWidth = 0
+            minimumHeight = 0
+            minWidth = 0
+            minHeight = 0
+            setPadding(dp(8), 0, dp(8), 0)
             setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
                 cornerRadius = dp(8).toFloat()
