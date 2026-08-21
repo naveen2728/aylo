@@ -22,7 +22,7 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
-import androidx.lifecycle.ViewTreeLifecycleOwner
+import androidx.lifecycle.setViewTreeLifecycleOwner
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -58,7 +58,7 @@ class AylooInputMethodService : InputMethodService(), LifecycleOwner {
     }
 
     override fun onCreateInputView(): View = ComposeView(this).apply {
-        ViewTreeLifecycleOwner.set(this, this@AylooInputMethodService)
+        setViewTreeLifecycleOwner(this@AylooInputMethodService)
         setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnLifecycleDestroyed(serviceLifecycle))
         setContent {
             KeyboardScreen(
