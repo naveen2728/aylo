@@ -6,81 +6,121 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.inputmethodservice.InputMethodService
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
 import android.os.Build
+import android.os.SystemClock
+import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.InputMethodManager
-import android.os.SystemClock
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.LifecycleRegistry
-import androidx.lifecycle.setViewTreeLifecycleOwner
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import java.io.File
 import java.util.concurrent.Executors
 
 enum class OrbState { IDLE, RECORDING, PROCESSING, SUCCESS, RETRY, ERROR }
 
-/**
- * InputMethodService is not a LifecycleOwner. Compose requires a stable owner in
- * its view tree, otherwise opening the IME crashes before the keyboard is drawn.
- */
-class AylooInputMethodService : InputMethodService(), LifecycleOwner {
-    private val serviceLifecycle = LifecycleRegistry(this)
-    override val lifecycle: Lifecycle
-        get() = serviceLifecycle
+/** Native views keep the IME independent of an Activity lifecycle. */
+class AylooInputMethodService : InputMethodService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var pendingStore: PendingCommandStore
     private var recorder: MediaRecorder? = null
     private var activeAudio: File? = null
+    private var keyboardRoot: LinearLayout? = null
     private var activeMode = VoiceMode.DICTATE
+        set(value) { field = value; refreshKeyboard() }
     private var recordingStartedAtMs = 0L
     private var stopRecording: Runnable? = null
-    private var orbState by mutableStateOf(OrbState.IDLE)
-    private var status by mutableStateOf("Choose Dictate or AI Command, then tap the orb.")
-    private var symbols by mutableStateOf(false)
-    private var uppercase by mutableStateOf(false)
+    private var orbState = OrbState.IDLE
+        set(value) { field = value; refreshKeyboard() }
+    private var status = "Choose Dictate or AI Command, then tap the orb."
+        set(value) { field = value; refreshKeyboard() }
+    private var symbols = false
+        set(value) { field = value; refreshKeyboard() }
+    private var uppercase = false
+        set(value) { field = value; refreshKeyboard() }
 
     override fun onCreate() {
         super.onCreate()
-        // The IME view can be shown independently from an Activity, so keep its
-        // composition active for the life of this service.
-        serviceLifecycle.currentState = Lifecycle.State.RESUMED
         pendingStore = PendingCommandStore(this)
     }
 
-    override fun onCreateInputView(): View = ComposeView(this).apply {
-        setViewTreeLifecycleOwner(this@AylooInputMethodService)
-        setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnLifecycleDestroyed(serviceLifecycle))
-        setContent {
-            KeyboardScreen(
-                orbState = orbState,
-                status = status,
-                symbols = symbols,
-                uppercase = uppercase,
-                voiceMode = activeMode,
-                onOrb = ::onOrbTapped,
-                onRetry = ::retryPending,
-                onDiscard = ::discardPending,
-                onModeSelected = ::selectMode,
-                onKey = ::commitKey,
-                onBackspace = ::backspace,
-                onSymbols = { symbols = !symbols },
-                onCaps = { uppercase = !uppercase },
-                onSpace = { commitKey(" ") },
-                onEnter = ::enter,
-                onSwitchKeyboard = ::switchKeyboard,
-            )
-        }
+    override fun onCreateInputView(): View = LinearLayout(this).also {
+        keyboardRoot = it
+        refreshKeyboard()
     }
+
+    private fun refreshKeyboard() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post(::refreshKeyboard)
+            return
+        }
+        val root = keyboardRoot ?: return
+        root.removeAllViews()
+        root.orientation = LinearLayout.VERTICAL
+        root.setPadding(dp(4), dp(4), dp(4), dp(4))
+        root.setBackgroundColor(Color.rgb(22, 21, 29))
+
+        root.addView(TextView(this).apply {
+            text = status
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            gravity = Gravity.CENTER
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(28)))
+        root.addView(row().also {
+            addButton(it, "Dictate", 1f, 38, activeMode == VoiceMode.DICTATE, ::selectDictate)
+            addButton(it, "AI Command", 1f, 38, activeMode == VoiceMode.COMMAND, ::selectCommand)
+        })
+        if (orbState == OrbState.RETRY) root.addView(row().also {
+            addButton(it, "Retry", 1f, 42, false, ::retryPending)
+            addButton(it, "Discard", 1f, 42, false, ::discardPending)
+        })
+        val letters = if (uppercase) listOf("QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM") else listOf("qwertyuiop", "asdfghjkl", "zxcvbnm")
+        val rows = if (symbols) listOf("1234567890", "-/:;()₹&@\"", "#+=!?.,") else letters
+        rows.forEach { chars -> root.addView(row().also { keyboardRow ->
+            chars.forEach { char -> addButton(keyboardRow, char.toString(), 1f, 48, false) { commitKey(char.toString()) } }
+        }) }
+        root.addView(row().also {
+            addButton(it, if (symbols) "ABC" else "123", 1.1f, 48, false) { symbols = !symbols }
+            addButton(it, "⇧", .9f, 48, false) { uppercase = !uppercase }
+            addButton(it, "⌫", 1.1f, 48, false, ::backspace)
+            addButton(it, orbLabel(), 1.4f, 48, true, ::onOrbTapped, orbState != OrbState.PROCESSING)
+            addButton(it, "space", 3f, 48, false) { commitKey(" ") }
+            addButton(it, "↵", 1.1f, 48, false, ::enter)
+            addButton(it, "⌨", 1.1f, 48, false, ::switchKeyboard)
+        })
+    }
+
+    private fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+    private fun selectDictate() = selectMode(VoiceMode.DICTATE)
+    private fun selectCommand() = selectMode(VoiceMode.COMMAND)
+    private fun orbLabel() = when (orbState) {
+        OrbState.IDLE, OrbState.SUCCESS, OrbState.ERROR -> "● AI"
+        OrbState.RECORDING -> "■ Stop"
+        OrbState.PROCESSING -> "…"
+        OrbState.RETRY -> "↻ Retry"
+    }
+    private fun addButton(row: LinearLayout, label: String, weight: Float, height: Int, selected: Boolean, onClick: () -> Unit, enabled: Boolean = true) {
+        row.addView(Button(this).apply {
+            text = label
+            textSize = 14f
+            isAllCaps = false
+            isEnabled = enabled
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                cornerRadius = dp(8).toFloat()
+                setColor(if (selected) Color.rgb(120, 104, 255) else Color.rgb(48, 46, 58))
+            }
+            setOnClickListener { onClick() }
+        }, LinearLayout.LayoutParams(0, dp(height), weight).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+    }
+    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     private fun onOrbTapped() {
         when (orbState) {
@@ -206,7 +246,6 @@ class AylooInputMethodService : InputMethodService(), LifecycleOwner {
         stopRecording?.let(mainHandler::removeCallbacks)
         recorder?.release()
         executor.shutdownNow()
-        serviceLifecycle.currentState = Lifecycle.State.DESTROYED
         super.onDestroy()
     }
 
