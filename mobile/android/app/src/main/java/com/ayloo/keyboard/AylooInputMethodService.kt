@@ -5,9 +5,12 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.inputmethodservice.InputMethodService
 import android.media.MediaRecorder
 import android.os.Handler
@@ -15,6 +18,7 @@ import android.os.Looper
 import android.os.Build
 import android.os.SystemClock
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -38,13 +42,10 @@ class AylooInputMethodService : InputMethodService() {
     // Session-only history: text never leaves the device and is cleared if Android stops the IME.
     private val aylooClipboard = ArrayDeque<String>()
     private var activeMode = VoiceMode.DICTATE
-        set(value) { field = value; refreshKeyboard() }
     private var recordingStartedAtMs = 0L
     private var stopRecording: Runnable? = null
     private var orbState = OrbState.IDLE
-        set(value) { field = value; refreshKeyboard() }
-    private var status = "Choose Dictate or AI Command, then tap the orb."
-        set(value) { field = value; refreshKeyboard() }
+    private var status = "Ready · Dictate"
     private var symbols = false
         set(value) { field = value; refreshKeyboard() }
     private var uppercase = false
@@ -68,21 +69,22 @@ class AylooInputMethodService : InputMethodService() {
         val root = keyboardRoot ?: return
         root.removeAllViews()
         root.orientation = LinearLayout.VERTICAL
-        root.setPadding(dp(4), dp(4), dp(4), dp(4))
-        root.setBackgroundColor(Color.rgb(22, 21, 29))
+        root.setPadding(dp(5), dp(4), dp(5), dp(5))
+        root.setBackgroundColor(KEYBOARD_BACKGROUND)
 
         root.addView(TextView(this).apply {
             text = status
-            setTextColor(Color.WHITE)
-            textSize = 12f
+            setTextColor(SECONDARY_TEXT)
+            textSize = 11f
             gravity = Gravity.CENTER
             maxLines = 1
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(28)))
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(22)))
         root.addView(row().also {
-            addButton(it, "Dictate", 1f, 38, activeMode == VoiceMode.DICTATE) { selectDictate() }
-            addButton(it, "AI Command", 1f, 38, activeMode == VoiceMode.COMMAND) { selectCommand() }
-            addButton(it, orbLabel(), 1f, 38, true, orbState != OrbState.PROCESSING) { onOrbTapped() }
-        })
+            it.gravity = Gravity.CENTER
+            addCompactButton(it, "Dictate", 78, activeMode == VoiceMode.DICTATE) { selectDictate() }
+            addCompactButton(it, "AI", 52, activeMode == VoiceMode.COMMAND) { selectCommand() }
+            addCompactButton(it, orbLabel(), 42, true, orbState != OrbState.PROCESSING, orbColor()) { onOrbTapped() }
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38)))
         if (orbState == OrbState.RETRY) root.addView(row().also {
             addButton(it, "Retry", 1f, 42, false) { retryPending() }
             addButton(it, "Discard", 1f, 42, false) { discardPending() }
@@ -96,7 +98,7 @@ class AylooInputMethodService : InputMethodService() {
         val clips = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         clips.addView(TextView(this).apply {
             text = "Ayloo clips"
-            setTextColor(Color.rgb(212, 208, 224))
+            setTextColor(SECONDARY_TEXT)
             textSize = 12f
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(6), 0, dp(4), 0)
@@ -161,10 +163,16 @@ class AylooInputMethodService : InputMethodService() {
     private fun selectDictate() = selectMode(VoiceMode.DICTATE)
     private fun selectCommand() = selectMode(VoiceMode.COMMAND)
     private fun orbLabel() = when (orbState) {
-        OrbState.IDLE, OrbState.SUCCESS, OrbState.ERROR -> "● AI"
-        OrbState.RECORDING -> "■ Stop"
-        OrbState.PROCESSING -> "…"
-        OrbState.RETRY -> "↻ Retry"
+        OrbState.IDLE, OrbState.SUCCESS, OrbState.ERROR -> "✦"
+        OrbState.RECORDING -> "●"
+        OrbState.PROCESSING -> "···"
+        OrbState.RETRY -> "↻"
+    }
+    private fun orbColor() = when (orbState) {
+        OrbState.RECORDING -> RECORDING_COLOR
+        OrbState.PROCESSING -> PROCESSING_COLOR
+        OrbState.RETRY, OrbState.ERROR -> WARNING_COLOR
+        else -> ACCENT_COLOR
     }
     private fun addButton(row: LinearLayout, label: String, weight: Float, height: Int, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
         row.addView(Button(this).apply {
@@ -177,13 +185,28 @@ class AylooInputMethodService : InputMethodService() {
             minWidth = 0
             minHeight = 0
             setPadding(dp(2), 0, dp(2), 0)
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                cornerRadius = dp(8).toFloat()
-                setColor(if (selected) Color.rgb(120, 104, 255) else Color.rgb(48, 46, 58))
-            }
-            setOnClickListener { onClick() }
+            setTextColor(PRIMARY_TEXT)
+            typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            background = rippleBackground(if (selected) ACCENT_COLOR else KEY_COLOR, dp(9).toFloat())
+            setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); onClick() }
         }, LinearLayout.LayoutParams(0, dp(height), weight).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+    }
+    private fun addCompactButton(row: LinearLayout, label: String, width: Int, selected: Boolean, enabled: Boolean = true, color: Int? = null, onClick: () -> Unit) {
+        row.addView(Button(this).apply {
+            text = label
+            textSize = 12f
+            isAllCaps = false
+            isEnabled = enabled
+            minimumWidth = 0
+            minimumHeight = 0
+            minWidth = 0
+            minHeight = 0
+            setPadding(dp(6), 0, dp(6), 0)
+            setTextColor(PRIMARY_TEXT)
+            typeface = if (selected) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
+            background = rippleBackground(color ?: if (selected) ACCENT_COLOR else SURFACE_COLOR, dp(17).toFloat())
+            setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); onClick() }
+        }, LinearLayout.LayoutParams(dp(width), dp(34)).apply { setMargins(dp(3), dp(2), dp(3), dp(2)) })
     }
     private fun addClipboardButton(row: LinearLayout, value: String, onClick: () -> Unit) {
         val label = if (value.length > 18) value.take(18) + "…" else value
@@ -196,13 +219,18 @@ class AylooInputMethodService : InputMethodService() {
             minWidth = 0
             minHeight = 0
             setPadding(dp(8), 0, dp(8), 0)
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                cornerRadius = dp(8).toFloat()
-                setColor(Color.rgb(61, 58, 73))
-            }
-            setOnClickListener { onClick() }
+            setTextColor(PRIMARY_TEXT)
+            background = rippleBackground(SURFACE_COLOR, dp(9).toFloat())
+            setOnClickListener { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP); onClick() }
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(34)).apply { setMargins(dp(2), dp(2), dp(2), dp(2)) })
+    }
+    private fun rippleBackground(color: Int, radius: Float): RippleDrawable {
+        val content = GradientDrawable().apply {
+            cornerRadius = radius
+            setColor(color)
+            setStroke(dp(1), Color.argb(38, 255, 255, 255))
+        }
+        return RippleDrawable(ColorStateList.valueOf(Color.argb(70, 255, 255, 255)), content, null)
     }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
@@ -218,14 +246,16 @@ class AylooInputMethodService : InputMethodService() {
     private fun selectMode(mode: VoiceMode) {
         if (orbState == OrbState.IDLE || orbState == OrbState.SUCCESS || orbState == OrbState.ERROR) {
             activeMode = mode
-            status = if (mode == VoiceMode.DICTATE) "Dictate selected. Tap the orb to speak." else "AI Command selected. Tap the orb to speak."
+            status = if (mode == VoiceMode.DICTATE) "Ready · Dictate" else "Ready · AI Command"
+            refreshKeyboard()
         }
     }
 
     private fun hasMicPermission() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun requestMicPermission() {
-        status = "Allow microphone access, then tap the orb again."
+        status = "Microphone permission needed"
+        refreshKeyboard()
         startActivity(Intent(this, PermissionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
@@ -236,7 +266,8 @@ class AylooInputMethodService : InputMethodService() {
                 setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setAudioEncodingBitRate(64_000)
+                setAudioChannels(1)
+                setAudioEncodingBitRate(96_000)
                 setAudioSamplingRate(16_000)
                 setOutputFile(target.absolutePath)
                 prepare()
@@ -245,14 +276,16 @@ class AylooInputMethodService : InputMethodService() {
             activeAudio = target
             recordingStartedAtMs = SystemClock.elapsedRealtime()
             orbState = OrbState.RECORDING
-            status = if (activeMode == VoiceMode.DICTATE) "Dictating… tap the orb when you are done." else "Listening for an AI command… tap the orb when you are done."
+            status = if (activeMode == VoiceMode.DICTATE) "Listening · Dictate" else "Listening · AI Command"
+            refreshKeyboard()
             stopRecording = Runnable { if (orbState == OrbState.RECORDING) finishRecordingAndSubmit() }.also {
                 mainHandler.postDelayed(it, MAX_RECORDING_MS)
             }
         } catch (_: Exception) {
             pendingStore.discard(target)
             orbState = OrbState.ERROR
-            status = "Microphone could not start. Check permission and try again."
+            status = "Microphone unavailable · tap to retry"
+            refreshKeyboard()
         }
     }
 
@@ -266,7 +299,8 @@ class AylooInputMethodService : InputMethodService() {
         if (audio == null || !audio.exists() || audio.length() < MIN_AUDIO_BYTES) {
             pendingStore.discard(audio)
             orbState = OrbState.ERROR
-            status = "That recording was too short. Please try again."
+            status = "Too short · tap to retry"
+            refreshKeyboard()
             return
         }
         submit(audio, (SystemClock.elapsedRealtime() - recordingStartedAtMs).coerceIn(1L, MAX_RECORDING_MS), activeMode)
@@ -274,7 +308,8 @@ class AylooInputMethodService : InputMethodService() {
 
     private fun submit(audio: File, durationMs: Long = MAX_RECORDING_MS, mode: VoiceMode = activeMode) {
         orbState = OrbState.PROCESSING
-        status = if (mode == VoiceMode.DICTATE) "Transcribing…" else "Turning your command into text…"
+        status = if (mode == VoiceMode.DICTATE) "Transcribing…" else "Thinking…"
+        refreshKeyboard()
         executor.execute {
             try {
                 val response = CommandApi().execute(audio, durationMs, mode)
@@ -283,24 +318,27 @@ class AylooInputMethodService : InputMethodService() {
                     pendingStore.discard(audio)
                     activeAudio = null
                     orbState = OrbState.SUCCESS
-                    status = if (mode == VoiceMode.DICTATE) "Transcript inserted." else "Answer inserted and copied."
+                    status = if (mode == VoiceMode.DICTATE) "Inserted" else "Inserted · copied"
+                    refreshKeyboard()
                 }
             } catch (exception: Exception) {
                 mainHandler.post {
                     activeAudio = audio
                     orbState = OrbState.RETRY
                     status = exception.message ?: "Could not connect. Your recording is ready to retry."
+                    refreshKeyboard()
                 }
             }
         }
     }
 
-    private fun retryPending() { pendingStore.pending()?.let { submit(it, mode = activeMode) } ?: run { orbState = OrbState.IDLE; status = "No pending recording." } }
+    private fun retryPending() { pendingStore.pending()?.let { submit(it, mode = activeMode) } ?: run { orbState = OrbState.IDLE; status = "No saved recording"; refreshKeyboard() } }
     private fun discardPending() {
         pendingStore.discard(pendingStore.pending())
         activeAudio = null
         orbState = OrbState.IDLE
-        status = "Recording discarded."
+        status = "Recording discarded"
+        refreshKeyboard()
     }
 
     private fun copyAndInsert(text: String) {
@@ -321,7 +359,6 @@ class AylooInputMethodService : InputMethodService() {
         aylooClipboard.remove(normalized)
         aylooClipboard.addFirst(normalized)
         while (aylooClipboard.size > MAX_CLIPBOARD_ITEMS) aylooClipboard.removeLast()
-        refreshKeyboard()
     }
 
     private fun commitKey(key: String) {
@@ -358,6 +395,15 @@ class AylooInputMethodService : InputMethodService() {
     }
 
     private companion object {
+        val KEYBOARD_BACKGROUND: Int = Color.rgb(15, 16, 21)
+        val SURFACE_COLOR: Int = Color.rgb(37, 39, 48)
+        val KEY_COLOR: Int = Color.rgb(44, 46, 56)
+        val ACCENT_COLOR: Int = Color.rgb(124, 108, 255)
+        val RECORDING_COLOR: Int = Color.rgb(225, 75, 91)
+        val PROCESSING_COLOR: Int = Color.rgb(83, 86, 101)
+        val WARNING_COLOR: Int = Color.rgb(218, 145, 55)
+        val PRIMARY_TEXT: Int = Color.rgb(246, 247, 251)
+        val SECONDARY_TEXT: Int = Color.rgb(174, 178, 193)
         const val MAX_RECORDING_MS = 30_000L
         const val MIN_AUDIO_BYTES = 1_000L
         const val MAX_CLIPBOARD_ITEMS = 8
