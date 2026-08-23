@@ -56,7 +56,10 @@ def test_command_transcribes_and_generates_paste_ready_response():
     assert response.status_code == 200
     assert response.json() == {"transcript": "write a friendly follow-up", "result": "Hello there"}
     assert fake.audio.transcriptions.calls[0]["model"] == "whisper-large-v3-turbo"
-    assert fake.chat.completions.calls[0]["messages"][1]["content"] == "write a friendly follow-up"
+    messages = fake.chat.completions.calls[0]["messages"]
+    assert messages[1]["content"] == "write a friendly follow-up"
+    assert "ordinary numbered lists" in messages[0]["content"]
+    assert "refined ready-to-use prompt" in messages[0]["content"]
 
 
 def test_command_removes_visible_markdown_markers():

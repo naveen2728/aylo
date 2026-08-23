@@ -19,9 +19,13 @@ MAX_AUDIO_DURATION_MS = 30_000
 MAX_REQUESTS_PER_MINUTE = 12
 ALLOWED_AUDIO_TYPES = {"audio/mp4", "audio/m4a", "audio/mpeg", "audio/wav", "audio/x-wav", "application/octet-stream"}
 ANSWER_ONLY_PROMPT = (
-    "Return only the final content the user can directly paste. Never add explanations, labels, "
-    "preambles, quotes, or follow-up questions. Use plain text only: no Markdown, asterisks, "
-    "backticks, heading markers, or other formatting syntax. Use ordinary numbered lists when structure is needed."
+    "Create a polished, complete answer that the user can paste immediately. Return only the requested content; "
+    "never discuss how you produced it, repeat the request, or add a preamble, closing note, quotation marks, "
+    "or follow-up question. Match the structure to the task: use concise paragraphs for prose, ordinary numbered "
+    "lists for steps or multiple requirements, and short plain-text section titles only when they materially improve "
+    "readability. Put a blank line between distinct sections. Keep important details from the request, remove repetition, "
+    "and make wording natural and specific. If the user asks for a prompt, return a refined ready-to-use prompt. "
+    "Use plain text only: no Markdown, asterisks, backticks, heading markers, tables, or other formatting syntax."
 )
 
 
