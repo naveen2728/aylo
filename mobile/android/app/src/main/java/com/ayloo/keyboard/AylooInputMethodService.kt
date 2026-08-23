@@ -45,7 +45,9 @@ class AylooInputMethodService : InputMethodService() {
     private var recordingStartedAtMs = 0L
     private var stopRecording: Runnable? = null
     private var orbState = OrbState.IDLE
-    private var status = "Ready · Dictate"
+    private var status = "Ayloo"
+    private var featurePanelExpanded = false
+        set(value) { field = value; refreshKeyboard() }
     private var symbols = false
         set(value) { field = value; refreshKeyboard() }
     private var uppercase = false
@@ -72,25 +74,36 @@ class AylooInputMethodService : InputMethodService() {
         root.setPadding(dp(5), dp(4), dp(5), dp(5))
         root.setBackgroundColor(KEYBOARD_BACKGROUND)
 
-        root.addView(TextView(this).apply {
-            text = status
-            setTextColor(SECONDARY_TEXT)
-            textSize = 11f
-            gravity = Gravity.CENTER
-            maxLines = 1
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(22)))
-        root.addView(row().also {
-            it.gravity = Gravity.CENTER
-            addCompactButton(it, "Dictate", 78, activeMode == VoiceMode.DICTATE) { selectDictate() }
-            addCompactButton(it, "AI", 52, activeMode == VoiceMode.COMMAND) { selectCommand() }
-            addCompactButton(it, orbLabel(), 42, true, orbState != OrbState.PROCESSING, orbColor()) { onOrbTapped() }
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38)))
+        addAylooToolbar(root)
+        if (featurePanelExpanded) addFeaturePanel(root)
+        if (symbols) addSymbolKeys(root) else addLetterKeys(root)
+    }
+
+    private fun addAylooToolbar(root: LinearLayout) {
+        root.addView(row().also { toolbar ->
+            toolbar.gravity = Gravity.CENTER_VERTICAL
+            addCompactButton(toolbar, if (activeMode == VoiceMode.DICTATE) "Dictate" else "AI", 72, true) { toggleVoiceMode() }
+            toolbar.addView(TextView(this).apply {
+                text = status
+                setTextColor(SECONDARY_TEXT)
+                textSize = 11f
+                gravity = Gravity.CENTER_VERTICAL
+                maxLines = 1
+                setPadding(dp(8), 0, dp(4), 0)
+            }, LinearLayout.LayoutParams(0, dp(38), 1f))
+            addCompactButton(toolbar, orbLabel(), 40, true, orbState != OrbState.PROCESSING, orbColor()) { onOrbTapped() }
+            addCompactButton(toolbar, if (featurePanelExpanded) "×" else "⋯", 40, featurePanelExpanded) {
+                featurePanelExpanded = !featurePanelExpanded
+            }
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
+    }
+
+    private fun addFeaturePanel(root: LinearLayout) {
         if (orbState == OrbState.RETRY) root.addView(row().also {
-            addButton(it, "Retry", 1f, 42, false) { retryPending() }
-            addButton(it, "Discard", 1f, 42, false) { discardPending() }
+            addButton(it, "Retry", 1f, 38, false) { retryPending() }
+            addButton(it, "Discard", 1f, 38, false) { discardPending() }
         })
         addClipboardStrip(root)
-        if (symbols) addSymbolKeys(root) else addLetterKeys(root)
     }
 
     private fun addClipboardStrip(root: LinearLayout) {
@@ -160,8 +173,7 @@ class AylooInputMethodService : InputMethodService() {
     private fun addSpacer(row: LinearLayout, weight: Float) {
         row.addView(View(this), LinearLayout.LayoutParams(0, dp(48), weight))
     }
-    private fun selectDictate() = selectMode(VoiceMode.DICTATE)
-    private fun selectCommand() = selectMode(VoiceMode.COMMAND)
+    private fun toggleVoiceMode() = selectMode(if (activeMode == VoiceMode.DICTATE) VoiceMode.COMMAND else VoiceMode.DICTATE)
     private fun orbLabel() = when (orbState) {
         OrbState.IDLE, OrbState.SUCCESS, OrbState.ERROR -> "✦"
         OrbState.RECORDING -> "●"
@@ -246,7 +258,7 @@ class AylooInputMethodService : InputMethodService() {
     private fun selectMode(mode: VoiceMode) {
         if (orbState == OrbState.IDLE || orbState == OrbState.SUCCESS || orbState == OrbState.ERROR) {
             activeMode = mode
-            status = if (mode == VoiceMode.DICTATE) "Ready · Dictate" else "Ready · AI Command"
+            status = "Ayloo"
             refreshKeyboard()
         }
     }
@@ -326,7 +338,7 @@ class AylooInputMethodService : InputMethodService() {
                     activeAudio = audio
                     orbState = OrbState.RETRY
                     status = exception.message ?: "Could not connect. Your recording is ready to retry."
-                    refreshKeyboard()
+                    featurePanelExpanded = true
                 }
             }
         }
