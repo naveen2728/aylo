@@ -20,7 +20,8 @@ MAX_REQUESTS_PER_MINUTE = 12
 ALLOWED_AUDIO_TYPES = {"audio/mp4", "audio/m4a", "audio/mpeg", "audio/wav", "audio/x-wav", "application/octet-stream"}
 ANSWER_ONLY_PROMPT = (
     "Return only the final content the user can directly paste. Never add explanations, labels, "
-    "preambles, markdown fences, quotes, or follow-up questions."
+    "preambles, quotes, or follow-up questions. Use plain text only: no Markdown, asterisks, "
+    "backticks, heading markers, or other formatting syntax. Use ordinary numbered lists when structure is needed."
 )
 
 
@@ -60,7 +61,11 @@ def clean_output(text: str) -> str:
     result = (text or "").strip()
     if result.startswith("```") and result.endswith("```"):
         result = "\n".join(result.splitlines()[1:-1]).strip()
-    return result.strip('"').strip()
+    # Android input fields receive plain text, so Markdown markers otherwise
+    # appear as visible punctuation (for example, *Hero section* in WhatsApp).
+    result = result.replace("*", "").replace("`", "").replace("__", "")
+    lines = [line.lstrip("# ") if line.lstrip().startswith("#") else line for line in result.splitlines()]
+    return "\n".join(lines).strip('"').strip()
 
 
 def get_settings(request: Request) -> Settings:

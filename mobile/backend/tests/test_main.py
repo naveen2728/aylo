@@ -59,6 +59,14 @@ def test_command_transcribes_and_generates_paste_ready_response():
     assert fake.chat.completions.calls[0]["messages"][1]["content"] == "write a friendly follow-up"
 
 
+def test_command_removes_visible_markdown_markers():
+    fake = FakeGroq(result="## Portfolio\n\n1. *Hero section*\n2. **Projects** with `links`")
+    with client(fake) as test_client:
+        response = post_command(test_client)
+    assert response.status_code == 200
+    assert response.json()["result"] == "Portfolio\n\n1. Hero section\n2. Projects with links"
+
+
 def test_dictate_returns_exact_transcript_without_calling_generation():
     fake = FakeGroq(transcript="This is exactly what I said.")
     with client(fake) as test_client:
