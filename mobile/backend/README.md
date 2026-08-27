@@ -3,6 +3,16 @@
 The FastAPI relay keeps Groq credentials outside the Android app. It is intended only for internal
 testing and does not persist uploaded audio, transcripts, or results.
 
+## Internal API
+
+- `POST /v1/commands` accepts a private audio upload plus `duration_ms` and `mode` (`dictate` or `command`).
+- `POST /v1/text-actions` accepts selected `text` and one allowlisted transformation `action`.
+- `GET /health` exposes deployment health only.
+
+Both POST routes require the internal bearer token, share the per-tester rate limit, and reject
+oversized input. Logs contain request metadata only, never audio, selected text, transcripts, or
+generated results.
+
 ## Render deployment
 
 The repository's `render.yaml` defines a Free Python Web Service rooted at this directory. In

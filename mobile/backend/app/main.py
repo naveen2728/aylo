@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 LOG = logging.getLogger("ayloo.mobile")
 MAX_AUDIO_BYTES = 10 * 1024 * 1024
 MAX_AUDIO_DURATION_MS = 30_000
+MAX_TEXT_CHARS = 20_000
 MAX_REQUESTS_PER_MINUTE = 12
 ALLOWED_AUDIO_TYPES = {"audio/mp4", "audio/m4a", "audio/mpeg", "audio/wav", "audio/x-wav", "application/octet-stream"}
 ANSWER_ONLY_PROMPT = (
@@ -27,6 +28,14 @@ ANSWER_ONLY_PROMPT = (
     "and make wording natural and specific. If the user asks for a prompt, return a refined ready-to-use prompt. "
     "Use plain text only: no Markdown, asterisks, backticks, heading markers, tables, or other formatting syntax."
 )
+TEXT_ACTION_INSTRUCTIONS = {
+    "improve": "Improve clarity, flow, and wording while preserving the meaning and approximate length.",
+    "grammar": "Fix grammar, spelling, punctuation, and capitalization without changing the meaning or tone.",
+    "shorten": "Make the text substantially shorter while preserving every essential point.",
+    "summarize": "Summarize the essential information clearly and concisely.",
+    "professional": "Rewrite the text in a polished, professional, natural tone.",
+    "reply": "Write a useful, natural reply to the supplied message. Return only the reply.",
+}
 
 
 @dataclass(frozen=True)
@@ -152,8 +161,44 @@ def create_app(settings: Settings | None = None, groq_client=None) -> FastAPI:
         except HTTPException:
             raise
         except Exception as exc:
-            LOG.exception("Groq command failed: %s", type(exc).__name__)
+            # Provider exception strings can contain request metadata; log only the class.
+            LOG.error("Groq command failed", extra={"error_type": type(exc).__name__})
             raise HTTPException(502, "The AI service is temporarily unavailable. Your recording can be retried.") from exc
+
+    @app.post("/v1/text-actions")
+    async def text_action(
+        text: str = Form(...),
+        action: Literal["improve", "grammar", "shorten", "summarize", "professional", "reply"] = Form(...),
+        _tester: str = Depends(authorize),
+    ):
+        source = text.strip()
+        if not source:
+            raise HTTPException(422, "Select some text first.")
+        if len(source) > MAX_TEXT_CHARS:
+            raise HTTPException(413, "Selected text must be 20,000 characters or fewer.")
+        try:
+            completion = app.state.groq.chat.completions.create(
+                model=app.state.settings.command_model,
+                max_tokens=2048,
+                messages=[
+                    {"role": "system", "content": ANSWER_ONLY_PROMPT},
+                    {
+                        "role": "user",
+                        "content": f"{TEXT_ACTION_INSTRUCTIONS[action]}\n\nText to transform:\n{source}",
+                    },
+                ],
+            )
+            result = clean_output(completion.choices[0].message.content)
+            if not result:
+                raise HTTPException(502, "The AI did not return usable text. Please retry.")
+            # Deliberately log only metadata. Selected text and generated output are never logged.
+            LOG.info("text action completed", extra={"action": action, "input_chars": len(source)})
+            return {"result": result}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            LOG.error("Groq text action failed", extra={"error_type": type(exc).__name__})
+            raise HTTPException(502, "The AI service is temporarily unavailable. Please retry.") from exc
 
     return app
 

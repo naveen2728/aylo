@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "AylooKeyboard"
 include(":app")
+include(":assistant")
