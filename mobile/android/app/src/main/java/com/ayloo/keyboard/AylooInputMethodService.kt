@@ -36,6 +36,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import java.io.File
 import java.util.ArrayDeque
+import java.util.Locale
 import java.util.concurrent.Executors
 
 enum class OrbState { IDLE, RECORDING, PROCESSING, SUCCESS, RETRY, ERROR }
@@ -69,6 +70,10 @@ class AylooInputMethodService : InputMethodService() {
     private var keyboardRoot: LinearLayout? = null
     private var statusView: TextView? = null
     private var orbAnimator: Animator? = null
+    private val alphabetKeyViews = mutableListOf<Pair<TextView, String>>()
+    private var shiftKeyView: TextView? = null
+    private var repeatingKeyActive = false
+    private var stopActiveRepeat: (() -> Unit)? = null
 
     // Session-only history: text never leaves the device and is cleared if Android stops the IME.
     private val aylooClipboard = ArrayDeque<String>()
@@ -176,7 +181,7 @@ class AylooInputMethodService : InputMethodService() {
         candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
-        if (!numericEditor && !symbols && shiftState != ShiftState.LOCKED) syncAutoShift()
+        if (!numericEditor && !symbols && shiftState != ShiftState.LOCKED && !repeatingKeyActive) syncAutoShift()
     }
 
     private fun initialShiftState(): ShiftState {
@@ -193,7 +198,7 @@ class AylooInputMethodService : InputMethodService() {
         val next = if (cursorNeedsCaps()) ShiftState.ON else ShiftState.OFF
         if (next != shiftState) {
             shiftState = next
-            refreshKeyboard()
+            updateShiftUi()
         }
     }
 
@@ -203,7 +208,11 @@ class AylooInputMethodService : InputMethodService() {
             return
         }
         val root = keyboardRoot ?: return
+        stopActiveRepeat?.invoke()
+        stopActiveRepeat = null
         orbAnimator?.cancel()
+        alphabetKeyViews.clear()
+        shiftKeyView = null
         root.removeAllViews()
         root.orientation = LinearLayout.VERTICAL
         root.setPadding(dp(4), dp(3), dp(4), dp(5))
@@ -360,15 +369,17 @@ class AylooInputMethodService : InputMethodService() {
     }
 
     private fun addLetterKeys(root: LinearLayout) {
-        val rows = KeyboardLayout.letters(shiftState != ShiftState.OFF)
-        addCharacterRow(root, rows[0])
+        val rows = KeyboardLayout.letters(false)
+        root.addView(row().also { top ->
+            rows[0].forEach { letter -> addLetterKey(top, letter) }
+        }, keyRowParams())
         root.addView(row().also { middle ->
             addSpacer(middle, .42f)
-            rows[1].forEach { label -> addKey(middle, label) { commitKey(label) } }
+            rows[1].forEach { letter -> addLetterKey(middle, letter) }
             addSpacer(middle, .42f)
         }, keyRowParams())
         root.addView(row().also { lower ->
-            addKey(
+            shiftKeyView = addKey(
                 lower,
                 if (shiftState == ShiftState.LOCKED) "⇧·" else "⇧",
                 weight = 1.45f,
@@ -376,12 +387,35 @@ class AylooInputMethodService : InputMethodService() {
                 selected = shiftState != ShiftState.OFF,
                 description = if (shiftState == ShiftState.LOCKED) "Caps lock on" else "Shift",
             ) { toggleShift() }
-            rows[2].forEach { label -> addKey(lower, label) { commitKey(label) } }
+            rows[2].forEach { letter -> addLetterKey(lower, letter) }
             addKey(lower, "⌫", 1.45f, KeyStyle.FUNCTION, description = "Backspace", repeatable = true, onRelease = ::syncAutoShift) {
                 backspace()
             }
         }, keyRowParams())
         addBottomRow(root)
+    }
+
+    private fun addLetterKey(row: LinearLayout, letter: String) {
+        val label = letterForCurrentShift(letter)
+        val view = addKey(row, label) { commitKey(letterForCurrentShift(letter)) }
+        alphabetKeyViews += view to letter
+    }
+
+    private fun letterForCurrentShift(letter: String): String = if (shiftState == ShiftState.OFF) {
+        letter
+    } else {
+        letter.uppercase(Locale.US)
+    }
+
+    /** Capitalization changes update 27 existing views instead of rebuilding the whole IME. */
+    private fun updateShiftUi() {
+        alphabetKeyViews.forEach { (view, letter) -> view.text = letterForCurrentShift(letter) }
+        shiftKeyView?.let { shift ->
+            val selected = shiftState != ShiftState.OFF
+            shift.text = if (shiftState == ShiftState.LOCKED) "⇧·" else "⇧"
+            shift.contentDescription = if (shiftState == ShiftState.LOCKED) "Caps lock on" else "Shift"
+            applyKeyAppearance(shift, KeyStyle.FUNCTION, selected, radiusDp = 7)
+        }
     }
 
     private fun addSymbolKeys(root: LinearLayout) {
@@ -482,7 +516,7 @@ class AylooInputMethodService : InputMethodService() {
         repeatable: Boolean = false,
         onRelease: (() -> Unit)? = null,
         onTap: () -> Unit,
-    ) {
+    ): TextView {
         val textSize = when {
             label.length >= 5 -> 12f
             label.length >= 3 -> 13f
@@ -493,6 +527,7 @@ class AylooInputMethodService : InputMethodService() {
         row.addView(view, LinearLayout.LayoutParams(0, dp(48), weight).apply {
             setMargins(dp(2), dp(2), dp(2), dp(2))
         })
+        return view
     }
 
     private fun createKeyView(
@@ -503,6 +538,16 @@ class AylooInputMethodService : InputMethodService() {
         radiusDp: Int,
         contentDescription: String,
     ): TextView {
+        return textView(label, textSize, palette.text, if (selected) Typeface.BOLD else Typeface.NORMAL).apply {
+            gravity = Gravity.CENTER
+            isClickable = true
+            isFocusable = false
+            this.contentDescription = contentDescription
+            applyKeyAppearance(this, style, selected, radiusDp)
+        }
+    }
+
+    private fun applyKeyAppearance(view: TextView, style: KeyStyle, selected: Boolean, radiusDp: Int) {
         val baseColor = when (style) {
             KeyStyle.LETTER -> palette.key
             KeyStyle.FUNCTION -> if (selected) palette.accentSoft else palette.functionKey
@@ -515,14 +560,10 @@ class AylooInputMethodService : InputMethodService() {
             selected -> palette.accent
             else -> palette.text
         }
-        return textView(label, textSize, textColor, if (selected) Typeface.BOLD else Typeface.NORMAL).apply {
-            gravity = Gravity.CENTER
-            isClickable = true
-            isFocusable = false
-            elevation = if (style == KeyStyle.LETTER) dp(1).toFloat() else 0f
-            background = rippleBackground(baseColor, dp(radiusDp).toFloat())
-            this.contentDescription = contentDescription
-        }
+        view.setTextColor(textColor)
+        view.typeface = Typeface.create("sans-serif", if (selected) Typeface.BOLD else Typeface.NORMAL)
+        view.elevation = if (style == KeyStyle.LETTER) dp(1).toFloat() else 0f
+        view.background = rippleBackground(baseColor, dp(radiusDp).toFloat())
     }
 
     private fun textView(label: String, size: Float, color: Int, typefaceStyle: Int = Typeface.NORMAL) = TextView(this).apply {
@@ -540,27 +581,37 @@ class AylooInputMethodService : InputMethodService() {
         onRelease: (() -> Unit)? = null,
         onTap: () -> Unit,
     ) {
+        var holding = false
         var repeatCount = 0
         val repeat = object : Runnable {
             override fun run() {
-                if (!view.isPressed || !view.isAttachedToWindow) return
+                if (!holding) return
                 onTap()
                 repeatCount += 1
-                view.postDelayed(this, if (repeatCount > 12) 34L else 52L)
+                mainHandler.postDelayed(this, if (repeatCount > 10) 30L else 42L)
             }
         }
         view.setOnTouchListener { touched, event ->
             if (!touched.isEnabled) return@setOnTouchListener true
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    holding = true
+                    if (repeatable) repeatingKeyActive = true
                     touched.isPressed = true
-                    touched.animate().scaleX(.97f).scaleY(.97f).setDuration(45L).start()
+                    touched.animate().cancel()
+                    touched.animate().scaleX(.975f).scaleY(.975f).setDuration(30L).start()
                     touched.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
                     touched.playSoundEffect(SoundEffectConstants.CLICK)
+                    // IME keys commit on touch-down so fast alternating taps cannot be dropped.
+                    onTap()
                     if (repeatable) {
-                        onTap()
                         repeatCount = 0
-                        touched.postDelayed(repeat, 360L)
+                        stopActiveRepeat = {
+                            holding = false
+                            repeatingKeyActive = false
+                            mainHandler.removeCallbacks(repeat)
+                        }
+                        mainHandler.postDelayed(repeat, 300L)
                     }
                     true
                 }
@@ -568,26 +619,40 @@ class AylooInputMethodService : InputMethodService() {
                     val slop = dp(12).toFloat()
                     val inside = event.x >= -slop && event.x <= touched.width + slop &&
                         event.y >= -slop && event.y <= touched.height + slop
-                    if (!inside && touched.isPressed) {
+                    if (!inside && holding) {
+                        holding = false
+                        if (repeatable) repeatingKeyActive = false
+                        if (repeatable) stopActiveRepeat = null
                         touched.isPressed = false
-                        touched.removeCallbacks(repeat)
+                        mainHandler.removeCallbacks(repeat)
+                        touched.animate().cancel()
+                        touched.animate().scaleX(1f).scaleY(1f).setDuration(45L).start()
+                        onRelease?.invoke()
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val shouldTap = touched.isPressed && !repeatable
+                    val wasHolding = holding
+                    holding = false
+                    if (repeatable) repeatingKeyActive = false
+                    if (repeatable) stopActiveRepeat = null
                     touched.isPressed = false
-                    touched.removeCallbacks(repeat)
-                    touched.animate().scaleX(1f).scaleY(1f).setDuration(70L).start()
-                    if (shouldTap) onTap()
-                    onRelease?.invoke()
+                    mainHandler.removeCallbacks(repeat)
+                    touched.animate().cancel()
+                    touched.animate().scaleX(1f).scaleY(1f).setDuration(45L).start()
+                    if (wasHolding) onRelease?.invoke()
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    val wasHolding = holding
+                    holding = false
+                    if (repeatable) repeatingKeyActive = false
+                    if (repeatable) stopActiveRepeat = null
                     touched.isPressed = false
-                    touched.removeCallbacks(repeat)
-                    touched.animate().scaleX(1f).scaleY(1f).setDuration(70L).start()
-                    onRelease?.invoke()
+                    mainHandler.removeCallbacks(repeat)
+                    touched.animate().cancel()
+                    touched.animate().scaleX(1f).scaleY(1f).setDuration(45L).start()
+                    if (wasHolding) onRelease?.invoke()
                     true
                 }
                 else -> true
@@ -639,7 +704,7 @@ class AylooInputMethodService : InputMethodService() {
             ShiftState.LOCKED -> ShiftState.OFF
         }
         lastShiftTapMs = now
-        refreshKeyboard()
+        updateShiftUi()
     }
 
     private fun onOrbTapped() {
@@ -861,7 +926,7 @@ class AylooInputMethodService : InputMethodService() {
         currentInputConnection?.commitText(key, 1)
         if (!symbols && shiftState == ShiftState.ON) {
             shiftState = ShiftState.OFF
-            refreshKeyboard()
+            updateShiftUi()
         }
     }
 

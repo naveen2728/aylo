@@ -21,8 +21,8 @@ android {
         applicationId = "com.ayloo.keyboard"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.4.0-beta"
+        versionCode = 9
+        versionName = "0.4.1-beta"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "TESTER_TOKEN", "\"$testerToken\"")
     }
