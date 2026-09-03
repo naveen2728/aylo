@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission
+        android:name="com.ayloo.keyboard.permission.INTERNAL"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.ayloo.keyboard.permission.INTERNAL" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
     <application

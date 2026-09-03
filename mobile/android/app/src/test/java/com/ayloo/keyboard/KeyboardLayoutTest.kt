@@ -17,7 +17,9 @@ class KeyboardLayoutTest {
         assertEquals(listOf(10, 10, 7), KeyboardLayout.symbols(0).map { it.size })
         assertEquals(listOf(10, 10, 7), KeyboardLayout.symbols(1).map { it.size })
         assertTrue("₹" in KeyboardLayout.symbols(0).flatten())
-        assertTrue("π" in KeyboardLayout.symbols(1).flatten())
+        assertTrue("/" in KeyboardLayout.symbols(0).flatten())
+        assertTrue("€" in KeyboardLayout.symbols(1).flatten())
+        assertTrue("\\" in KeyboardLayout.symbols(1).flatten())
     }
 
     @Test

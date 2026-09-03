@@ -21,8 +21,8 @@ android {
         applicationId = "com.ayloo.keyboard"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "0.5.1-beta"
+        versionCode = 13
+        versionName = "0.6.0-beta"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "TESTER_TOKEN", "\"$testerToken\"")
     }
@@ -38,6 +38,7 @@ android {
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.customview:customview:1.2.0")
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.compose.ui:ui")

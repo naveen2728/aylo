@@ -1,10 +1,12 @@
 package com.ayloo.keyboard
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.graphics.Color
@@ -12,6 +14,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
 import android.inputmethodservice.InputMethodService
+import android.icu.text.BreakIterator
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
@@ -21,6 +24,7 @@ import android.text.InputType
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -59,6 +63,10 @@ private data class KeyboardPalette(
 class AylooInputMethodService : InputMethodService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
+    private val commandApi by lazy(LazyThreadSafetyMode.NONE) { CommandApi() }
+    private val graphemeIterator by lazy(LazyThreadSafetyMode.NONE) {
+        BreakIterator.getCharacterInstance(Locale.getDefault())
+    }
     private lateinit var pendingStore: PendingCommandStore
     private var recorder: MediaRecorder? = null
     private var activeAudio: File? = null
@@ -74,6 +82,7 @@ class AylooInputMethodService : InputMethodService() {
 
     // Session-only history: text never leaves the device and is cleared if Android stops the IME.
     private val aylooClipboard = ArrayDeque<String>()
+    private var dismissedSystemClipboardText: String? = null
     private var activeMode = VoiceMode.DICTATE
     private var recordingStartedAtMs = 0L
     private var stopRecording: Runnable? = null
@@ -90,37 +99,62 @@ class AylooInputMethodService : InputMethodService() {
     private var numericEditor = false
     private var phoneEditor = false
     private var secureEditor = false
+    private var suggestionsAllowed = true
     private var inputType = InputType.TYPE_CLASS_TEXT
     private var inputSessionId = 0L
+    private var selectionStart = -1
+    private var selectionEnd = -1
+    private var startRecordingAfterPermission = false
+    private var permissionEditorPackage: String? = null
+    private var permissionEditorFieldId = 0
+    private var permissionRequestedAtMs = 0L
+    private val clipboardChangeListener = ClipboardManager.OnPrimaryClipChangedListener {
+        dismissedSystemClipboardText = null
+    }
+
+    private val microphonePermissionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ACTION_MICROPHONE_PERMISSION_RESULT || !startRecordingAfterPermission) return
+            startRecordingAfterPermission = intent.getBooleanExtra(EXTRA_MICROPHONE_GRANTED, false)
+            if (startRecordingAfterPermission) {
+                mainHandler.postDelayed(::resumeRecordingAfterPermission, 220L)
+            } else {
+                clearPendingMicrophoneStart()
+            }
+        }
+    }
 
     private val palette: KeyboardPalette
         get() {
             val night = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
                 Configuration.UI_MODE_NIGHT_YES
+            val accent = resolveSystemAccent(night)
             return if (night) {
+                val background = Color.rgb(24, 27, 33)
                 KeyboardPalette(
-                    background = Color.rgb(32, 33, 36),
-                    key = Color.rgb(60, 64, 67),
-                    functionKey = Color.rgb(78, 81, 85),
-                    surface = Color.rgb(48, 49, 52),
-                    text = Color.rgb(248, 249, 250),
-                    secondaryText = Color.rgb(189, 193, 198),
-                    accent = Color.rgb(66, 133, 244),
-                    accentSoft = Color.rgb(57, 68, 87),
-                    recording = Color.rgb(217, 48, 37),
+                    background = background,
+                    key = Color.rgb(48, 53, 63),
+                    functionKey = Color.rgb(38, 43, 52),
+                    surface = Color.rgb(31, 36, 44),
+                    text = Color.rgb(246, 247, 251),
+                    secondaryText = Color.rgb(180, 186, 198),
+                    accent = accent,
+                    accentSoft = blendColors(background, accent, .25f),
+                    recording = Color.rgb(244, 92, 86),
                     divider = Color.TRANSPARENT,
                 )
             } else {
+                val background = Color.rgb(235, 238, 244)
                 KeyboardPalette(
-                    background = Color.rgb(232, 234, 237),
-                    key = Color.rgb(248, 249, 250),
-                    functionKey = Color.rgb(218, 220, 224),
-                    surface = Color.rgb(241, 243, 244),
-                    text = Color.rgb(32, 33, 36),
-                    secondaryText = Color.rgb(95, 99, 104),
-                    accent = Color.rgb(26, 115, 232),
-                    accentSoft = Color.rgb(210, 227, 252),
-                    recording = Color.rgb(217, 48, 37),
+                    background = background,
+                    key = Color.rgb(255, 255, 255),
+                    functionKey = Color.rgb(215, 220, 230),
+                    surface = Color.rgb(245, 247, 251),
+                    text = Color.rgb(31, 35, 43),
+                    secondaryText = Color.rgb(91, 98, 112),
+                    accent = accent,
+                    accentSoft = blendColors(background, accent, .18f),
+                    recording = Color.rgb(210, 47, 47),
                     divider = Color.TRANSPARENT,
                 )
             }
@@ -128,6 +162,21 @@ class AylooInputMethodService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        val permissionFilter = IntentFilter(ACTION_MICROPHONE_PERMISSION_RESULT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(
+                microphonePermissionReceiver,
+                permissionFilter,
+                INTERNAL_BROADCAST_PERMISSION,
+                null,
+                Context.RECEIVER_NOT_EXPORTED,
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(microphonePermissionReceiver, permissionFilter, INTERNAL_BROADCAST_PERMISSION, null)
+        }
+        (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+            .addPrimaryClipChangedListener(clipboardChangeListener)
         pendingStore = PendingCommandStore(this)
         pendingStore.pending()?.let { pending ->
             activeAudio = pending.audio
@@ -141,10 +190,17 @@ class AylooInputMethodService : InputMethodService() {
         refreshKeyboard()
     }
 
+    override fun onWindowShown() {
+        super.onWindowShown()
+        if (startRecordingAfterPermission) mainHandler.postDelayed(::resumeRecordingAfterPermission, 120L)
+    }
+
     override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         inputSessionId += 1
         inputType = attribute?.inputType ?: InputType.TYPE_CLASS_TEXT
+        selectionStart = attribute?.initialSelStart ?: -1
+        selectionEnd = attribute?.initialSelEnd ?: -1
         val inputClass = inputType and InputType.TYPE_MASK_CLASS
         val variation = inputType and InputType.TYPE_MASK_VARIATION
         numericEditor = inputClass == InputType.TYPE_CLASS_NUMBER ||
@@ -155,6 +211,15 @@ class AylooInputMethodService : InputMethodService() {
             InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
             InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD,
         )) || (inputClass == InputType.TYPE_CLASS_NUMBER && variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD)
+        suggestionsAllowed = inputClass == InputType.TYPE_CLASS_TEXT && !secureEditor &&
+            inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS == 0 &&
+            variation !in setOf(
+                InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
+                InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS,
+                InputType.TYPE_TEXT_VARIATION_URI,
+                InputType.TYPE_TEXT_VARIATION_FILTER,
+            )
+        if (secureEditor) clearPendingMicrophoneStart()
         if (secureEditor && orbState == OrbState.RECORDING) cancelActiveRecording()
         symbols = false
         symbolPage = 0
@@ -166,6 +231,8 @@ class AylooInputMethodService : InputMethodService() {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         inputSessionId += 1
+        selectionStart = -1
+        selectionEnd = -1
         if (orbState == OrbState.RECORDING) cancelActiveRecording()
         super.onFinishInputView(finishingInput)
     }
@@ -179,8 +246,12 @@ class AylooInputMethodService : InputMethodService() {
         candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
-        if (!numericEditor && !symbols && shiftState != ShiftState.LOCKED && !repeatingKeyActive) syncAutoShift()
-        scheduleSuggestionRefresh()
+        selectionStart = newSelStart
+        selectionEnd = newSelEnd
+        if (!repeatingKeyActive) {
+            if (!numericEditor && !symbols && shiftState != ShiftState.LOCKED) syncAutoShift()
+            scheduleSuggestionRefresh()
+        }
     }
 
     private fun initialShiftState(): ShiftState {
@@ -219,10 +290,17 @@ class AylooInputMethodService : InputMethodService() {
         root.setBackgroundColor(palette.background)
         window?.window?.navigationBarColor = palette.background
 
-        addAylooToolbar(root)
-        if (orbState == OrbState.RETRY) addRetryPanel(root)
+        if (!secureEditor) {
+            addAylooToolbar(root)
+        } else {
+            // Keep key centers identical to normal fields while exposing no private-field tools.
+            root.addView(
+                View(this),
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(TOOLBAR_HEIGHT_DP)),
+            )
+        }
         when {
-            featurePanelExpanded -> addClipboardPanel(root)
+            !secureEditor && featurePanelExpanded -> addClipboardPanel(root)
             emojiPanelExpanded -> addEmojiPanel(root)
             else -> addFastKeyboard(root)
         }
@@ -251,19 +329,28 @@ class AylooInputMethodService : InputMethodService() {
             setMargins(dp(1), 0, dp(2), 0)
         })
 
-        repeat(MAX_SUGGESTIONS) { index ->
-            val suggestion = createKeyView(
-                label = "",
-                textSize = 12.5f,
-                style = KeyStyle.QUIET,
-                radiusDp = 7,
-                contentDescription = "Word suggestion ${index + 1}",
-            ).apply { isEnabled = false; alpha = .35f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-            bindPress(suggestion) { visibleSuggestions.getOrNull(index)?.let(::acceptSuggestion) }
-            suggestionViews += suggestion
-            toolbar.addView(suggestion, LinearLayout.LayoutParams(0, dp(32), 1f).apply {
-                setMargins(dp(1), 0, dp(1), 0)
-            })
+        if (orbState == OrbState.RETRY) {
+            val retry = createKeyView("Retry", 11.5f, KeyStyle.ACCENT, radiusDp = 16, contentDescription = "Retry voice request")
+            bindPress(retry, onTap = ::retryPending)
+            toolbar.addView(retry, LinearLayout.LayoutParams(0, dp(36), 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
+            val discard = createKeyView("Discard", 11f, KeyStyle.QUIET, radiusDp = 16, contentDescription = "Discard saved recording")
+            bindPress(discard, onTap = ::discardPending)
+            toolbar.addView(discard, LinearLayout.LayoutParams(0, dp(36), 1f).apply { setMargins(dp(2), 0, dp(2), 0) })
+        } else {
+            repeat(MAX_SUGGESTIONS) { index ->
+                val suggestion = createKeyView(
+                    label = "",
+                    textSize = 12.5f,
+                    style = KeyStyle.QUIET,
+                    radiusDp = 7,
+                    contentDescription = "Word suggestion ${index + 1}",
+                ).apply { isEnabled = false; alpha = .35f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+                bindPress(suggestion) { visibleSuggestions.getOrNull(index)?.let(::acceptSuggestion) }
+                suggestionViews += suggestion
+                toolbar.addView(suggestion, LinearLayout.LayoutParams(0, dp(36), 1f).apply {
+                    setMargins(dp(1), 0, dp(1), 0)
+                })
+            }
         }
 
         addModeToggle(toolbar)
@@ -276,7 +363,7 @@ class AylooInputMethodService : InputMethodService() {
                 colors = MicrophoneColors(
                     idle = palette.accent,
                     recording = palette.recording,
-                    processing = palette.functionKey,
+                    processing = palette.secondaryText,
                     retry = Color.rgb(234, 134, 0),
                 ),
                 onPress = ::onOrbTapped,
@@ -284,10 +371,10 @@ class AylooInputMethodService : InputMethodService() {
                 isEnabled = microphoneEnabled
                 alpha = if (microphoneEnabled) 1f else .38f
             },
-            LinearLayout.LayoutParams(dp(36), dp(36)).apply { setMargins(dp(2), 0, dp(1), 0) },
+            LinearLayout.LayoutParams(dp(44), dp(44)).apply { setMargins(0, 0, 0, 0) },
         )
 
-        root.addView(toolbar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(41)))
+        root.addView(toolbar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(TOOLBAR_HEIGHT_DP)))
         scheduleSuggestionRefresh()
     }
 
@@ -297,7 +384,7 @@ class AylooInputMethodService : InputMethodService() {
             gravity = Gravity.CENTER
             setPadding(dp(1), dp(1), dp(1), dp(1))
             background = roundedBackground(palette.surface, dp(15).toFloat(), palette.divider)
-            alpha = if (secureEditor || orbState == OrbState.RECORDING || orbState == OrbState.PROCESSING) .55f else 1f
+            alpha = if (secureEditor || orbState in setOf(OrbState.RECORDING, OrbState.PROCESSING, OrbState.RETRY)) .55f else 1f
         }
         fun segment(label: String, mode: VoiceMode, description: String) {
             val selected = activeMode == mode
@@ -312,7 +399,7 @@ class AylooInputMethodService : InputMethodService() {
         }
         segment("D", VoiceMode.DICTATE, "Use exact voice dictation")
         segment("AI", VoiceMode.COMMAND, "Use AI voice command")
-        toolbar.addView(container, LinearLayout.LayoutParams(dp(70), dp(30)).apply { setMargins(dp(2), 0, dp(1), 0) })
+        toolbar.addView(container, LinearLayout.LayoutParams(dp(68), dp(38)).apply { setMargins(dp(2), 0, 0, 0) })
     }
 
     private fun addRetryPanel(root: LinearLayout) {
@@ -355,6 +442,7 @@ class AylooInputMethodService : InputMethodService() {
         }
         val clear = createKeyView("Clear", 11f, KeyStyle.QUIET, radiusDp = 15, contentDescription = "Clear Ayloo clipboard")
         bindPress(clear) {
+            dismissedSystemClipboardText = currentSystemClipboardText()
             aylooClipboard.clear()
             featurePanelExpanded = false
             refreshKeyboard()
@@ -393,12 +481,16 @@ class AylooInputMethodService : InputMethodService() {
 
     private fun scheduleSuggestionRefresh() {
         suggestionRefresh?.let(mainHandler::removeCallbacks)
-        if (secureEditor || numericEditor || suggestionViews.isEmpty()) return
+        if (!suggestionsAllowed || suggestionViews.isEmpty() || selectionStart != selectionEnd) {
+            visibleSuggestions = emptyList()
+            suggestionViews.forEach { view -> view.text = ""; view.isEnabled = false; view.alpha = .35f }
+            return
+        }
         suggestionRefresh = Runnable(::refreshSuggestions).also { mainHandler.postDelayed(it, SUGGESTION_DELAY_MS) }
     }
 
     private fun refreshSuggestions() {
-        if (secureEditor || numericEditor || suggestionViews.isEmpty()) return
+        if (!suggestionsAllowed || suggestionViews.isEmpty() || selectionStart != selectionEnd) return
         val beforeCursor = currentInputConnection?.getTextBeforeCursor(MAX_SUGGESTION_CONTEXT, 0)?.toString().orEmpty()
         visibleSuggestions = LocalSuggestionEngine.suggest(beforeCursor)
         suggestionViews.forEachIndexed { index, view ->
@@ -412,6 +504,11 @@ class AylooInputMethodService : InputMethodService() {
 
     private fun acceptSuggestion(suggestion: Suggestion) {
         val connection = currentInputConnection ?: return
+        if (selectionStart != selectionEnd) return
+        val before = connection.getTextBeforeCursor(1, 0)?.toString().orEmpty()
+        val after = connection.getTextAfterCursor(1, 0)?.toString().orEmpty()
+        val leadingSpace = suggestion.replaceCharacters == 0 && before.lastOrNull()?.let { !it.isWhitespace() } == true
+        val trailingSpace = after.firstOrNull()?.let { !it.isWhitespace() && it !in PUNCTUATION } != true
         connection.beginBatchEdit()
         try {
             if (suggestion.replaceCharacters > 0 &&
@@ -419,12 +516,18 @@ class AylooInputMethodService : InputMethodService() {
             ) {
                 connection.deleteSurroundingText(suggestion.replaceCharacters, 0)
             }
-            connection.commitText(suggestion.text + " ", 1)
+            connection.commitText(
+                buildString {
+                    if (leadingSpace) append(' ')
+                    append(suggestion.text)
+                    if (trailingSpace) append(' ')
+                },
+                1,
+            )
         } finally {
             connection.endBatchEdit()
         }
-        shiftState = ShiftState.OFF
-        updateShiftUi()
+        syncAutoShift()
         scheduleSuggestionRefresh()
     }
 
@@ -438,7 +541,10 @@ class AylooInputMethodService : InputMethodService() {
             stroke = palette.divider,
         )
         keyGridView = FastKeyboardView(this, colors, buildFastRows()).also { view ->
-            root.addView(view, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(KEY_GRID_HEIGHT_DP)))
+            root.addView(
+                view,
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(keyGridHeightDp())),
+            )
         }
     }
 
@@ -463,6 +569,7 @@ class AylooInputMethodService : InputMethodService() {
                     weight = 1.45f,
                     style = if (shiftState == ShiftState.OFF) FastKeyStyle.FUNCTION else FastKeyStyle.SELECTED,
                     description = if (shiftState == ShiftState.LOCKED) "Caps lock on" else "Shift",
+                    pressOnDown = true,
                     onPress = ::toggleShift,
                 ),
             )
@@ -488,6 +595,7 @@ class AylooInputMethodService : InputMethodService() {
                     weight = 1.45f,
                     style = FastKeyStyle.FUNCTION,
                     description = "More symbols",
+                    pressOnDown = true,
                     onPress = {
                         symbolPage = 1 - symbolPage
                         keyGridView?.updateRows(buildFastRows())
@@ -501,14 +609,33 @@ class AylooInputMethodService : InputMethodService() {
     }
 
     private fun buildFastNumberRows(): List<List<FastKey>> {
-        val labels = if (phoneEditor) {
-            listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("+", "0", "⌫"))
-        } else {
-            listOf(listOf("1", "2", "3", "-"), listOf("4", "5", "6", "."), listOf("7", "8", "9", ","), listOf("0", "⌫", enterLabel()))
+        val inputClass = inputType and InputType.TYPE_MASK_CLASS
+        val decimal = inputType and InputType.TYPE_NUMBER_FLAG_DECIMAL != 0
+        val signed = inputType and InputType.TYPE_NUMBER_FLAG_SIGNED != 0
+        val labels = when {
+            phoneEditor -> listOf(
+                listOf("1", "2", "3", "⌫"),
+                listOf("4", "5", "6", "+"),
+                listOf("7", "8", "9", "*"),
+                listOf("#", "0", ",", enterLabel()),
+            )
+            inputClass == InputType.TYPE_CLASS_DATETIME -> listOf(
+                listOf("1", "2", "3", "⌫"),
+                listOf("4", "5", "6", "/"),
+                listOf("7", "8", "9", ":"),
+                listOf("-", "0", ".", enterLabel()),
+            )
+            else -> listOf(
+                listOf("1", "2", "3", "⌫"),
+                listOf("4", "5", "6", if (decimal) "." else ""),
+                listOf("7", "8", "9", if (signed) "-" else ""),
+                listOf("", "0", "", enterLabel()),
+            )
         }
         return labels.mapIndexed { rowIndex, row ->
             row.map { label ->
                 when {
+                    label.isEmpty() -> FastKey("", spacer = true)
                     label == "⌫" -> fastBackspace(weight = 1f)
                     rowIndex == labels.lastIndex && label == enterLabel() -> FastKey(
                         label,
@@ -516,7 +643,10 @@ class AylooInputMethodService : InputMethodService() {
                         description = "Enter",
                         onPress = ::enter,
                     )
-                    else -> fastCharacter(label, if (label in setOf("-", ".", ",", "+")) FastKeyStyle.FUNCTION else FastKeyStyle.LETTER)
+                    else -> fastCharacter(
+                        label,
+                        if (label in setOf("-", ".", ",", "+", "*", "#", "/", ":")) FastKeyStyle.FUNCTION else FastKeyStyle.LETTER,
+                    )
                 }
             }
         }
@@ -534,6 +664,7 @@ class AylooInputMethodService : InputMethodService() {
         style = FastKeyStyle.FUNCTION,
         description = "Backspace",
         repeatable = true,
+        pressOnDown = true,
         onPress = {
             repeatingKeyActive = true
             backspace()
@@ -548,9 +679,10 @@ class AylooInputMethodService : InputMethodService() {
     private fun fastBottomRow(): List<FastKey> = listOf(
         FastKey(
             label = if (symbols) "ABC" else "?123",
-            weight = 1.2f,
+            weight = 1.3f,
             style = FastKeyStyle.FUNCTION,
             description = "Switch symbols",
+            pressOnDown = true,
             onPress = {
                 symbols = !symbols
                 symbolPage = 0
@@ -559,34 +691,40 @@ class AylooInputMethodService : InputMethodService() {
             },
         ),
         FastKey(
-            label = "☺",
-            weight = .8f,
+            label = if (emailOrUriEditor()) "@" else ",",
+            weight = 1f,
             style = FastKeyStyle.FUNCTION,
-            description = "Emoji",
-            onPress = {
-                emojiPanelExpanded = true
-                featurePanelExpanded = false
-                refreshKeyboard()
+            description = if (emailOrUriEditor()) "At sign; hold for emoji" else "Comma; hold for emoji",
+            alternateLabel = "☺",
+            onPress = { commitKey(if (emailOrUriEditor()) "@" else ",") },
+            onLongPress = {
+                keyGridView?.runAfterPointersReleased(::openEmojiPanel) ?: openEmojiPanel()
             },
         ),
-        FastKey(
-            label = if (emailOrUriEditor()) "@" else ",",
-            weight = .75f,
-            style = FastKeyStyle.FUNCTION,
-            onPress = { commitKey(if (emailOrUriEditor()) "@" else ",") },
-        ),
-        FastKey("English", 3.15f, description = "Space", onPress = { commitKey(" ") }),
-        FastKey(".", .75f, FastKeyStyle.FUNCTION, onPress = { commitKey(".") }),
-        FastKey("⌨", .85f, FastKeyStyle.FUNCTION, "Switch keyboard", onPress = ::switchKeyboard),
-        FastKey(enterLabel(), 1.25f, FastKeyStyle.ACCENT, "Enter", onPress = ::enter),
+        FastKey("English", 3.3f, description = "Space", onPress = { commitKey(" ") }),
+        FastKey(".", 1f, FastKeyStyle.FUNCTION, onPress = { commitKey(".") }),
+        FastKey("⌨", 1f, FastKeyStyle.FUNCTION, "Switch keyboard", pressOnDown = true, onPress = ::switchKeyboard),
+        FastKey(enterLabel(), 1.4f, FastKeyStyle.ACCENT, "Enter", onPress = ::enter),
     )
+
+    private fun openEmojiPanel() {
+        emojiPanelExpanded = true
+        featurePanelExpanded = false
+        refreshKeyboard()
+    }
 
     private fun syncSystemClipboard() {
         val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = manager.primaryClip ?: return
         for (index in 0 until clip.itemCount.coerceAtMost(3)) {
-            clip.getItemAt(index).coerceToText(this)?.toString()?.let(::saveToAylooClipboard)
+            val value = clip.getItemAt(index).text?.toString() ?: continue
+            if (value != dismissedSystemClipboardText) saveToAylooClipboard(value)
         }
+    }
+
+    private fun currentSystemClipboardText(): String? {
+        val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        return manager.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
     }
 
     private fun addClipboardPanel(root: LinearLayout) {
@@ -601,6 +739,7 @@ class AylooInputMethodService : InputMethodService() {
             setPadding(dp(9), 0, dp(4), 0)
         }, LinearLayout.LayoutParams(0, dp(38), 1f))
         addCompactAction(header, "Clear", KeyStyle.QUIET) {
+            dismissedSystemClipboardText = currentSystemClipboardText()
             aylooClipboard.clear()
             refreshKeyboard()
         }
@@ -634,13 +773,14 @@ class AylooInputMethodService : InputMethodService() {
             isVerticalScrollBarEnabled = false
             addView(entries)
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(panel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(PANEL_HEIGHT_DP)))
+        root.addView(panel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(keyGridHeightDp())))
     }
 
     private fun addEmojiPanel(root: LinearLayout) {
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val header = row().apply { gravity = Gravity.CENTER_VERTICAL }
         val categoryContent = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        addCompactAction(categoryContent, "ABC", KeyStyle.ACCENT) {
+        addCompactAction(header, "ABC", KeyStyle.ACCENT) {
             emojiPanelExpanded = false
             refreshKeyboard()
         }
@@ -650,6 +790,8 @@ class AylooInputMethodService : InputMethodService() {
             "People" to "👋",
             "Nature" to "🌿",
             "Food" to "🍕",
+            "Travel" to "🚗",
+            "Objects" to "💡",
             "Symbols" to "♥",
         )
         categories.forEach { (category, icon) ->
@@ -667,10 +809,25 @@ class AylooInputMethodService : InputMethodService() {
             }
             categoryContent.addView(button, LinearLayout.LayoutParams(dp(48), dp(32)).apply { setMargins(dp(2), 0, dp(2), 0) })
         }
-        panel.addView(HorizontalScrollView(this).apply {
+        header.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             addView(categoryContent)
-        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
+        }, LinearLayout.LayoutParams(0, dp(40), 1f))
+        val delete = createKeyView("⌫", 17f, KeyStyle.QUIET, radiusDp = 15, contentDescription = "Backspace")
+        bindPress(
+            delete,
+            repeatable = true,
+            onRelease = {
+                repeatingKeyActive = false
+                syncAutoShift()
+                scheduleSuggestionRefresh()
+            },
+        ) {
+            repeatingKeyActive = true
+            backspace()
+        }
+        header.addView(delete, LinearLayout.LayoutParams(dp(52), dp(32)).apply { setMargins(dp(2), 0, dp(2), 0) })
+        panel.addView(header, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
 
         val emojis = if (emojiCategory == "Recent") {
             recentEmojis.toList().ifEmpty { EmojiCatalog.categories.getValue("Smileys") }
@@ -691,7 +848,7 @@ class AylooInputMethodService : InputMethodService() {
             }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)))
         }
         panel.addView(grid, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(panel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(PANEL_HEIGHT_DP)))
+        root.addView(panel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(keyGridHeightDp())))
     }
 
     private fun insertEmoji(emoji: String) {
@@ -832,6 +989,7 @@ class AylooInputMethodService : InputMethodService() {
         EditorInfo.IME_ACTION_SEARCH -> "⌕"
         EditorInfo.IME_ACTION_SEND -> "Send"
         EditorInfo.IME_ACTION_NEXT -> "Next"
+        EditorInfo.IME_ACTION_PREVIOUS -> "Prev"
         EditorInfo.IME_ACTION_DONE -> "Done"
         else -> "↵"
     }
@@ -936,10 +1094,8 @@ class AylooInputMethodService : InputMethodService() {
                     holding = true
                     if (repeatable) repeatingKeyActive = true
                     touched.isPressed = true
-                    // The touch path deliberately does no animation, sound, or haptic work.
-                    // IME keys commit immediately so fast alternating taps cannot be dropped.
-                    onTap()
                     if (repeatable) {
+                        onTap()
                         repeatCount = 0
                         stopActiveRepeat = {
                             holding = false
@@ -971,7 +1127,11 @@ class AylooInputMethodService : InputMethodService() {
                     if (repeatable) stopActiveRepeat = null
                     touched.isPressed = false
                     mainHandler.removeCallbacks(repeat)
-                    if (wasHolding) onRelease?.invoke()
+                    if (wasHolding) {
+                        touched.performClick()
+                        if (!repeatable) onTap()
+                        onRelease?.invoke()
+                    }
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
@@ -1007,6 +1167,33 @@ class AylooInputMethodService : InputMethodService() {
         }
     }
 
+    private fun keyGridHeightDp(): Int {
+        val configuration = resources.configuration
+        if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) return 168
+        return when {
+            configuration.screenHeightDp in 1..640 -> 196
+            configuration.screenHeightDp >= 800 -> 216
+            else -> 208
+        }
+    }
+
+    private fun resolveSystemAccent(night: Boolean): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val colorResource = if (night) android.R.color.system_accent1_300 else android.R.color.system_accent1_600
+            runCatching { resources.getColor(colorResource, theme) }.getOrNull()?.let { return it }
+        }
+        return if (night) Color.rgb(150, 126, 255) else Color.rgb(98, 72, 214)
+    }
+
+    private fun blendColors(base: Int, overlay: Int, overlayAmount: Float): Int {
+        val amount = overlayAmount.coerceIn(0f, 1f)
+        return Color.rgb(
+            (Color.red(base) * (1f - amount) + Color.red(overlay) * amount).toInt(),
+            (Color.green(base) * (1f - amount) + Color.green(overlay) * amount).toInt(),
+            (Color.blue(base) * (1f - amount) + Color.blue(overlay) * amount).toInt(),
+        )
+    }
+
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
     private fun toggleShift() {
@@ -1040,14 +1227,53 @@ class AylooInputMethodService : InputMethodService() {
     private fun hasMicPermission() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun requestMicPermission() {
+        startRecordingAfterPermission = true
+        permissionEditorPackage = currentInputEditorInfo?.packageName
+        permissionEditorFieldId = currentInputEditorInfo?.fieldId ?: 0
+        permissionRequestedAtMs = SystemClock.elapsedRealtime()
         startActivity(Intent(this, PermissionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    private fun resumeRecordingAfterPermission() {
+        if (!startRecordingAfterPermission) return
+        if (SystemClock.elapsedRealtime() - permissionRequestedAtMs > PERMISSION_RESULT_TIMEOUT_MS) {
+            clearPendingMicrophoneStart()
+            return
+        }
+        if (!hasMicPermission()) {
+            clearPendingMicrophoneStart()
+            return
+        }
+        if (secureEditor) {
+            clearPendingMicrophoneStart()
+            return
+        }
+        if (currentInputConnection == null) return
+        val editor = currentInputEditorInfo ?: return
+        if (editor.packageName != permissionEditorPackage || editor.fieldId != permissionEditorFieldId) {
+            clearPendingMicrophoneStart()
+            return
+        }
+        if (orbState == OrbState.IDLE || orbState == OrbState.SUCCESS || orbState == OrbState.ERROR) {
+            clearPendingMicrophoneStart()
+            startRecording()
+        }
+    }
+
+    private fun clearPendingMicrophoneStart() {
+        startRecordingAfterPermission = false
+        permissionEditorPackage = null
+        permissionEditorFieldId = 0
+        permissionRequestedAtMs = 0L
     }
 
     private fun startRecording() {
         transientReset?.let(mainHandler::removeCallbacks)
         val target = pendingStore.createFile()
         try {
-            recorder = MediaRecorder(this).apply {
+            @Suppress("DEPRECATION")
+            val nextRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(this) else MediaRecorder()
+            recorder = nextRecorder.apply {
                 setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
                 setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
@@ -1100,7 +1326,7 @@ class AylooInputMethodService : InputMethodService() {
         refreshKeyboard()
         executor.execute {
             try {
-                val response = CommandApi().execute(audio, durationMs, mode)
+                val response = commandApi.execute(audio, durationMs, mode)
                 mainHandler.post {
                     val canInsert = requestSessionId == inputSessionId && !secureEditor
                     if (mode == VoiceMode.DICTATE) {
@@ -1113,6 +1339,20 @@ class AylooInputMethodService : InputMethodService() {
                     orbState = OrbState.SUCCESS
                     refreshKeyboard()
                     scheduleIdleReset(2_400L)
+                }
+            } catch (error: CommandRequestException) {
+                mainHandler.post {
+                    if (error.retryable) {
+                        activeAudio = audio
+                        orbState = OrbState.RETRY
+                    } else {
+                        pendingStore.discard(audio)
+                        activeAudio = null
+                        orbState = OrbState.ERROR
+                        scheduleIdleReset(3_000L)
+                    }
+                    featurePanelExpanded = false
+                    refreshKeyboard()
                 }
             } catch (_: Exception) {
                 mainHandler.post {
@@ -1204,16 +1444,51 @@ class AylooInputMethodService : InputMethodService() {
         scheduleSuggestionRefresh()
     }
 
-    /** One tap deletes one code point; holding accelerates through text like a standard keyboard. */
+    /** Deletes selections or one complete grapheme; holding accelerates like a standard keyboard. */
     private fun backspace() {
         val connection = currentInputConnection ?: return
-        connection.beginBatchEdit()
-        try {
-            if (!connection.deleteSurroundingTextInCodePoints(1, 0)) connection.deleteSurroundingText(1, 0)
-        } finally {
-            connection.endBatchEdit()
+        val selectionKnown = selectionStart >= 0 && selectionEnd >= 0
+        val hasSelection = if (selectionKnown) {
+            selectionStart != selectionEnd
+        } else {
+            !connection.getSelectedText(0).isNullOrEmpty()
         }
-        scheduleSuggestionRefresh()
+        var deletedUnits = 0
+        val handled = if (hasSelection) {
+            val collapsed = minOf(selectionStart, selectionEnd).coerceAtLeast(0)
+            connection.commitText("", 1).also { success ->
+                if (success && selectionKnown) {
+                    selectionStart = collapsed
+                    selectionEnd = collapsed
+                }
+            }
+        } else {
+            val lastUnit = connection.getTextBeforeCursor(1, 0)?.toString().orEmpty()
+            if (lastUnit.length == 1 && lastUnit[0].code in 0x20..0x7e) {
+                deletedUnits = 1
+                connection.deleteSurroundingText(1, 0)
+            } else {
+                val beforeCursor = connection.getTextBeforeCursor(32, 0)?.toString().orEmpty()
+                if (beforeCursor.isNotEmpty()) {
+                    graphemeIterator.setText(beforeCursor)
+                    val previousBoundary = graphemeIterator.preceding(beforeCursor.length)
+                    val utf16Units = if (previousBoundary == BreakIterator.DONE) 1 else beforeCursor.length - previousBoundary
+                    deletedUnits = utf16Units.coerceAtLeast(1)
+                    connection.deleteSurroundingText(utf16Units.coerceAtLeast(1), 0)
+                } else {
+                    false
+                }
+            }
+        }
+        if (handled && selectionKnown && deletedUnits > 0) {
+            selectionStart = (selectionStart - deletedUnits).coerceAtLeast(0)
+            selectionEnd = selectionStart
+        }
+        if (!handled) {
+            connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+            connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL))
+        }
+        if (!repeatingKeyActive) scheduleSuggestionRefresh()
     }
 
     private fun enter() {
@@ -1242,6 +1517,9 @@ class AylooInputMethodService : InputMethodService() {
     }
 
     override fun onDestroy() {
+        runCatching { unregisterReceiver(microphonePermissionReceiver) }
+        (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+            .removePrimaryClipChangedListener(clipboardChangeListener)
         cancelRecordingTimers()
         transientReset?.let(mainHandler::removeCallbacks)
         if (recorder != null) {
@@ -1255,7 +1533,9 @@ class AylooInputMethodService : InputMethodService() {
     }
 
     private companion object {
+        val PUNCTUATION = setOf('.', ',', '!', '?', ':', ';', ')', ']', '}')
         const val MAX_RECORDING_MS = 30_000L
+        const val PERMISSION_RESULT_TIMEOUT_MS = 90_000L
         const val MIN_AUDIO_BYTES = 1_000L
         const val MAX_CLIPBOARD_ITEMS = 8
         const val DOUBLE_TAP_MS = 420L
@@ -1263,8 +1543,7 @@ class AylooInputMethodService : InputMethodService() {
         const val MAX_SUGGESTION_CONTEXT = 96
         // Debounce predictions so rapid typing never competes with the touch/input path.
         const val SUGGESTION_DELAY_MS = 45L
-        const val KEY_GRID_HEIGHT_DP = 208
-        const val PANEL_HEIGHT_DP = 208
+        const val TOOLBAR_HEIGHT_DP = 44
         const val MAX_RECENT_EMOJIS = 32
     }
 }

@@ -15,6 +15,8 @@ enum class VoiceMode { DICTATE, COMMAND }
 
 data class CommandResponse(val transcript: String, val result: String)
 
+class CommandRequestException(message: String, val retryable: Boolean, cause: Throwable? = null) : IOException(message, cause)
+
 class CommandApi(
     private val baseUrl: String = BuildConfig.API_BASE_URL,
     private val token: String = BuildConfig.TESTER_TOKEN,
@@ -27,10 +29,10 @@ class CommandApi(
         .build(),
 ) {
     fun execute(audio: File, durationMs: Long, mode: VoiceMode): CommandResponse {
-        require(baseUrl.startsWith("https://") || baseUrl.startsWith("http://10.0.2.2")) {
-            "Ayloo is not configured with a secure backend URL."
+        if (!baseUrl.startsWith("https://") && !baseUrl.startsWith("http://10.0.2.2")) {
+            throw CommandRequestException("Ayloo is not configured with a secure backend URL.", retryable = false)
         }
-        require(token.isNotBlank()) { "This internal build has no tester token." }
+        if (token.isBlank()) throw CommandRequestException("This internal build has no tester token.", retryable = false)
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("audio", audio.name, audio.asRequestBody("audio/mp4".toMediaType()))
             .addFormDataPart("client_version", BuildConfig.VERSION_NAME)
@@ -46,13 +48,26 @@ class CommandApi(
                 val responseBody = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     val detail = runCatching { JSONObject(responseBody).optString("detail") }.getOrDefault("")
-                    throw IOException(detail.ifBlank { "Ayloo could not process this request (${response.code})." })
+                    val retryable = response.code == 408 || response.code == 429 || response.code >= 500
+                    throw CommandRequestException(
+                        detail.ifBlank { "Ayloo could not process this request (${response.code})." },
+                        retryable = retryable,
+                    )
                 }
-                val json = JSONObject(responseBody)
-                return CommandResponse(json.getString("transcript"), json.getString("result"))
+                val json = try {
+                    JSONObject(responseBody)
+                } catch (error: Exception) {
+                    throw CommandRequestException("Ayloo received an invalid server response.", retryable = false, error)
+                }
+                val transcript = json.optString("transcript")
+                val result = json.optString("result")
+                if (transcript.isBlank() || result.isBlank()) {
+                    throw CommandRequestException("Ayloo received an incomplete server response.", retryable = false)
+                }
+                return CommandResponse(transcript, result)
             }
         } catch (_: InterruptedIOException) {
-            throw IOException("Ayloo may be waking up. Wait a minute, then tap Retry.")
+            throw CommandRequestException("Ayloo may be waking up. Wait a minute, then tap Retry.", retryable = true)
         }
     }
 }
