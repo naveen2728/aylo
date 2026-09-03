@@ -33,6 +33,7 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import java.io.File
 import java.util.ArrayDeque
 import java.util.Locale
@@ -163,18 +164,14 @@ class AylooInputMethodService : InputMethodService() {
     override fun onCreate() {
         super.onCreate()
         val permissionFilter = IntentFilter(ACTION_MICROPHONE_PERMISSION_RESULT)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(
-                microphonePermissionReceiver,
-                permissionFilter,
-                INTERNAL_BROADCAST_PERMISSION,
-                null,
-                Context.RECEIVER_NOT_EXPORTED,
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            registerReceiver(microphonePermissionReceiver, permissionFilter, INTERNAL_BROADCAST_PERMISSION, null)
-        }
+        ContextCompat.registerReceiver(
+            this,
+            microphonePermissionReceiver,
+            permissionFilter,
+            INTERNAL_BROADCAST_PERMISSION,
+            null,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
             .addPrimaryClipChangedListener(clipboardChangeListener)
         pendingStore = PendingCommandStore(this)
