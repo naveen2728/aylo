@@ -56,20 +56,17 @@ jobs:
       # A hosted runner normally creates a fresh debug certificate on every run. Keeping the
       # internal-test keystore stable prevents later beta APKs from failing with "App not installed".
       - name: Restore internal beta signing key
+        id: signing-key-cache
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
           key: ayloo-keyboard-internal-debug-key-v1
 
-      - name: Create internal beta signing key when absent
+      - name: Require the established internal beta signing key
+        if: steps.signing-key-cache.outputs.cache-hit != 'true'
         run: |
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            mkdir -p "$HOME/.android"
-            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
-              -storepass android -alias androiddebugkey -keypass android \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Ayloo Internal Beta,O=Ayloo,C=IN"
-          fi
+          echo "The established beta signing key was not restored; refusing to create an incompatible APK."
+          exit 1
 
       - name: Configure internal test build
         working-directory: mobile/android
@@ -92,7 +89,9 @@ jobs:
         run: |
           badging=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Ayloo-Keyboard-0.6.0-beta.apk | head -n 1)
           echo "$badging" | grep -F "package: name='com.ayloo.keyboard' versionCode='13' versionName='0.6.0-beta'"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Ayloo-Keyboard-0.6.0-beta.apk
+          cert_report=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Ayloo-Keyboard-0.6.0-beta.apk)
+          echo "$cert_report"
+          echo "$cert_report" | grep -Fi "Signer #1 certificate SHA-256 digest: 9816ba8080864f69fa8d00f89cb88d122414ee2cd2159b5d227bee4175d19646"
           sha256sum Ayloo-Keyboard-0.6.0-beta.apk > Ayloo-Keyboard-0.6.0-beta.apk.sha256
 
       - name: Upload APK
