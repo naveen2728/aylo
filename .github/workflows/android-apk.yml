@@ -48,22 +48,45 @@ jobs:
           gradle-version: "8.10"
           cache-provider: basic
 
+      # A hosted runner normally creates a fresh debug certificate on every run. Keeping the
+      # internal-test keystore stable prevents later beta APKs from failing with "App not installed".
+      - name: Restore internal beta signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: ayloo-keyboard-internal-debug-key-v1
+
+      - name: Create internal beta signing key when absent
+        run: |
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair -v -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Ayloo Internal Beta,O=Ayloo,C=IN"
+          fi
+
       - name: Configure internal test build
         working-directory: mobile/android
         run: |
+          test -n "${{ secrets.AYLOO_API_BASE_URL }}" || (echo "AYLOO_API_BASE_URL is missing" && exit 1)
+          test -n "${{ secrets.AYLOO_TESTER_TOKEN }}" || (echo "AYLOO_TESTER_TOKEN is missing" && exit 1)
           cat > local.properties <<'EOF'
           AYLOO_API_BASE_URL=${{ secrets.AYLOO_API_BASE_URL }}
           AYLOO_TESTER_TOKEN=${{ secrets.AYLOO_TESTER_TOKEN }}
           EOF
 
-      - name: Assemble debug APK
+      - name: Test and assemble debug APK
         working-directory: mobile/android
-        run: gradle :app:assembleDebug --no-daemon
+        run: gradle :app:testDebugUnitTest :app:assembleDebug --no-daemon
+
+      - name: Name install file
+        run: cp mobile/android/app/build/outputs/apk/debug/app-debug.apk Ayloo-Keyboard-0.4.0-beta.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: ayloo-keyboard-debug-apk
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: ayloo-keyboard-0.4.0-beta-apk
+          path: Ayloo-Keyboard-0.4.0-beta.apk
           if-no-files-found: error
           retention-days: 14

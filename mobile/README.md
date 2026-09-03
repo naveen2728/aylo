@@ -10,16 +10,21 @@ This is an Android Studio project for the internal Ayloo keyboard prototype.
 3. Install the debug app, then open **Settings > System > Keyboard > On-screen keyboard** and
    enable Ayloo. Select Ayloo from Android's input-method picker.
 
-The keyboard is deliberately a small English layout for the prototype. It never reads or sends
-surrounding text; only audio recorded after tapping the orb is uploaded.
+The internal beta uses a familiar English QWERTY layout with automatic capitalization, two symbol
+pages, context-aware Enter keys, number/phone layouts, tap-and-hold backspace, light/dark colors,
+and a compact Dictate/AI voice toggle. It never reads or sends surrounding text; only audio
+recorded after tapping the orb is uploaded. Voice capture is disabled in password fields.
 
 ## Build without an Android SDK on this laptop
 
 Push this repository to GitHub, then open **Actions > Build Android prototype APK > Run workflow**.
 GitHub builds the APK in the cloud; when it completes, open the run and download the
-`ayloo-keyboard-debug-apk` artifact. Before making an internal test build that can reach the
+`ayloo-keyboard-0.4.0-beta-apk` artifact. Before making an internal test build that can reach the
 backend, add repository secrets named `AYLOO_API_BASE_URL` and `AYLOO_TESTER_TOKEN` under
 **Settings > Secrets and variables > Actions**. The downloaded artifact expires after 14 days.
+The workflow caches its internal debug signing key so later beta builds can update this build.
+Because older workflow runs used disposable signing keys, upgrading from a pre-0.4 APK may require
+one final uninstall/reinstall; builds from 0.4 onward should update normally while that cache exists.
 
 ## Backend
 
