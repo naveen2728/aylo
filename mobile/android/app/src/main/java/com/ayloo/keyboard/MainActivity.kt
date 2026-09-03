@@ -162,7 +162,7 @@ private fun AylooSetupScreen(enabled: Boolean, onEnable: () -> Unit, onChoose: (
                 shape = RoundedCornerShape(16.dp),
             )
             Text(
-                "Dictate inserts your transcript. AI inserts the answer and copies it. Voice is disabled in password fields.",
+                "Suggestions use only nearby text on your phone. Dictate inserts your transcript; AI inserts and copies its answer. Voice and suggestions are disabled in password fields.",
                 color = Muted,
                 fontSize = 12.sp,
                 lineHeight = 17.sp,

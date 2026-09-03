@@ -27,6 +27,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
 import java.util.ArrayDeque
@@ -67,6 +68,10 @@ class AylooInputMethodService : InputMethodService() {
     private var shiftKeyView: TextView? = null
     private var repeatingKeyActive = false
     private var stopActiveRepeat: (() -> Unit)? = null
+    private var keyGridView: FastKeyboardView? = null
+    private val suggestionViews = mutableListOf<TextView>()
+    private var visibleSuggestions = emptyList<Suggestion>()
+    private var suggestionRefresh: Runnable? = null
 
     // Session-only history: text never leaves the device and is cleared if Android stops the IME.
     private val aylooClipboard = ArrayDeque<String>()
@@ -78,6 +83,9 @@ class AylooInputMethodService : InputMethodService() {
     private var orbState = OrbState.IDLE
     private var status = "Ayloo"
     private var featurePanelExpanded = false
+    private var emojiPanelExpanded = false
+    private var emojiCategory = "Smileys"
+    private val recentEmojis = ArrayDeque<String>()
     private var symbols = false
     private var symbolPage = 0
     private var shiftState = ShiftState.OFF
@@ -154,6 +162,8 @@ class AylooInputMethodService : InputMethodService() {
         if (secureEditor && orbState == OrbState.RECORDING) cancelActiveRecording()
         symbols = false
         symbolPage = 0
+        featurePanelExpanded = false
+        emojiPanelExpanded = false
         shiftState = initialShiftState()
         if (secureEditor) status = "Voice is off in password fields" else if (orbState == OrbState.IDLE) status = "Ayloo"
         refreshKeyboard()
@@ -175,6 +185,7 @@ class AylooInputMethodService : InputMethodService() {
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         if (!numericEditor && !symbols && shiftState != ShiftState.LOCKED && !repeatingKeyActive) syncAutoShift()
+        scheduleSuggestionRefresh()
     }
 
     private fun initialShiftState(): ShiftState {
@@ -203,6 +214,8 @@ class AylooInputMethodService : InputMethodService() {
         val root = keyboardRoot ?: return
         stopActiveRepeat?.invoke()
         stopActiveRepeat = null
+        keyGridView = null
+        suggestionViews.clear()
         alphabetKeyViews.clear()
         shiftKeyView = null
         root.removeAllViews()
@@ -213,11 +226,13 @@ class AylooInputMethodService : InputMethodService() {
 
         addAylooToolbar(root)
         if (orbState == OrbState.RETRY) addRetryPanel(root)
-        if (featurePanelExpanded && aylooClipboard.isNotEmpty()) addClipboardStrip(root)
         when {
-            numericEditor -> addNumberKeys(root)
-            symbols -> addSymbolKeys(root)
-            else -> addLetterKeys(root)
+            featurePanelExpanded -> addClipboardPanel(root)
+            emojiPanelExpanded -> addEmojiPanel(root)
+            else -> {
+                if (!numericEditor && !secureEditor) addSuggestionRow(root)
+                addFastKeyboard(root)
+            }
         }
     }
 
@@ -263,23 +278,23 @@ class AylooInputMethodService : InputMethodService() {
             })
         }
 
-        if (aylooClipboard.isNotEmpty()) {
-            val clips = createKeyView(
-                label = if (featurePanelExpanded) "×" else "⋯",
-                textSize = 17f,
-                style = KeyStyle.QUIET,
-                selected = featurePanelExpanded,
-                radiusDp = 18,
-                contentDescription = if (featurePanelExpanded) "Close clipboard" else "Open Ayloo clipboard",
-            )
-            bindPress(clips) {
-                featurePanelExpanded = !featurePanelExpanded
-                refreshKeyboard()
-            }
-            toolbar.addView(clips, LinearLayout.LayoutParams(dp(36), dp(36)).apply {
-                setMargins(dp(2), 0, 0, 0)
-            })
+        val clips = createKeyView(
+            label = if (featurePanelExpanded) "×" else "▣",
+            textSize = 16f,
+            style = KeyStyle.QUIET,
+            selected = featurePanelExpanded,
+            radiusDp = 18,
+            contentDescription = if (featurePanelExpanded) "Close clipboard" else "Open clipboard",
+        )
+        bindPress(clips) {
+            if (!featurePanelExpanded) syncSystemClipboard()
+            featurePanelExpanded = !featurePanelExpanded
+            emojiPanelExpanded = false
+            refreshKeyboard()
         }
+        toolbar.addView(clips, LinearLayout.LayoutParams(dp(36), dp(36)).apply {
+            setMargins(dp(2), 0, 0, 0)
+        })
         root.addView(toolbar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(41)))
     }
 
@@ -359,6 +374,341 @@ class AylooInputMethodService : InputMethodService() {
         }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
     }
 
+    private fun addSuggestionRow(root: LinearLayout) {
+        visibleSuggestions = emptyList()
+        val suggestions = row().apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(2), dp(1), dp(2), dp(1))
+        }
+        repeat(MAX_SUGGESTIONS) { index ->
+            val view = createKeyView(
+                label = "",
+                textSize = 14f,
+                style = KeyStyle.QUIET,
+                radiusDp = 8,
+                contentDescription = "Word suggestion ${index + 1}",
+            ).apply { isEnabled = false; alpha = .45f }
+            bindPress(view) { visibleSuggestions.getOrNull(index)?.let(::acceptSuggestion) }
+            suggestionViews += view
+            suggestions.addView(view, LinearLayout.LayoutParams(0, dp(36), 1f).apply {
+                setMargins(dp(2), dp(1), dp(2), dp(1))
+            })
+        }
+        root.addView(suggestions, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
+        scheduleSuggestionRefresh()
+    }
+
+    private fun scheduleSuggestionRefresh() {
+        suggestionRefresh?.let(mainHandler::removeCallbacks)
+        if (secureEditor || numericEditor || suggestionViews.isEmpty()) return
+        suggestionRefresh = Runnable(::refreshSuggestions).also { mainHandler.postDelayed(it, SUGGESTION_DELAY_MS) }
+    }
+
+    private fun refreshSuggestions() {
+        if (secureEditor || numericEditor || suggestionViews.isEmpty()) return
+        val beforeCursor = currentInputConnection?.getTextBeforeCursor(MAX_SUGGESTION_CONTEXT, 0)?.toString().orEmpty()
+        visibleSuggestions = LocalSuggestionEngine.suggest(beforeCursor)
+        suggestionViews.forEachIndexed { index, view ->
+            val suggestion = visibleSuggestions.getOrNull(index)
+            view.text = suggestion?.text.orEmpty()
+            view.contentDescription = suggestion?.let { "Insert ${it.text}" } ?: "No suggestion"
+            view.isEnabled = suggestion != null
+            view.alpha = if (suggestion != null) 1f else .35f
+        }
+    }
+
+    private fun acceptSuggestion(suggestion: Suggestion) {
+        val connection = currentInputConnection ?: return
+        connection.beginBatchEdit()
+        try {
+            if (suggestion.replaceCharacters > 0 &&
+                !connection.deleteSurroundingTextInCodePoints(suggestion.replaceCharacters, 0)
+            ) {
+                connection.deleteSurroundingText(suggestion.replaceCharacters, 0)
+            }
+            connection.commitText(suggestion.text + " ", 1)
+        } finally {
+            connection.endBatchEdit()
+        }
+        shiftState = ShiftState.OFF
+        updateShiftUi()
+        scheduleSuggestionRefresh()
+    }
+
+    private fun addFastKeyboard(root: LinearLayout) {
+        val colors = FastKeyboardColors(
+            key = palette.key,
+            functionKey = palette.functionKey,
+            accent = palette.accent,
+            selected = palette.accentSoft,
+            text = palette.text,
+            stroke = palette.divider,
+        )
+        keyGridView = FastKeyboardView(this, colors, buildFastRows()).also { view ->
+            root.addView(view, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(KEY_GRID_HEIGHT_DP)))
+        }
+    }
+
+    private fun buildFastRows(): List<List<FastKey>> = when {
+        numericEditor -> buildFastNumberRows()
+        symbols -> buildFastSymbolRows()
+        else -> buildFastLetterRows()
+    }
+
+    private fun buildFastLetterRows(): List<List<FastKey>> {
+        val letters = KeyboardLayout.letters(false)
+        val top = letters[0].map(::fastLetter)
+        val middle = buildList {
+            add(FastKey("", .42f, spacer = true))
+            letters[1].forEach { add(fastLetter(it)) }
+            add(FastKey("", .42f, spacer = true))
+        }
+        val lower = buildList {
+            add(
+                FastKey(
+                    label = if (shiftState == ShiftState.LOCKED) "⇧·" else "⇧",
+                    weight = 1.45f,
+                    style = if (shiftState == ShiftState.OFF) FastKeyStyle.FUNCTION else FastKeyStyle.SELECTED,
+                    description = if (shiftState == ShiftState.LOCKED) "Caps lock on" else "Shift",
+                    onPress = ::toggleShift,
+                ),
+            )
+            letters[2].forEach { add(fastLetter(it)) }
+            add(fastBackspace())
+        }
+        return listOf(top, middle, lower, fastBottomRow())
+    }
+
+    private fun fastLetter(letter: String) = FastKey(
+        label = letterForCurrentShift(letter),
+        onPress = { commitKey(letterForCurrentShift(letter)) },
+    )
+
+    private fun buildFastSymbolRows(): List<List<FastKey>> {
+        val rows = KeyboardLayout.symbols(symbolPage)
+        val top = rows[0].map(::fastCharacter)
+        val middle = rows[1].map(::fastCharacter)
+        val lower = buildList {
+            add(
+                FastKey(
+                    label = if (symbolPage == 0) "=\\<" else "?123",
+                    weight = 1.45f,
+                    style = FastKeyStyle.FUNCTION,
+                    description = "More symbols",
+                    onPress = {
+                        symbolPage = 1 - symbolPage
+                        keyGridView?.updateRows(buildFastRows())
+                    },
+                ),
+            )
+            rows[2].forEach { add(fastCharacter(it)) }
+            add(fastBackspace())
+        }
+        return listOf(top, middle, lower, fastBottomRow())
+    }
+
+    private fun buildFastNumberRows(): List<List<FastKey>> {
+        val labels = if (phoneEditor) {
+            listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf("+", "0", "⌫"))
+        } else {
+            listOf(listOf("1", "2", "3", "-"), listOf("4", "5", "6", "."), listOf("7", "8", "9", ","), listOf("0", "⌫", enterLabel()))
+        }
+        return labels.mapIndexed { rowIndex, row ->
+            row.map { label ->
+                when {
+                    label == "⌫" -> fastBackspace(weight = 1f)
+                    rowIndex == labels.lastIndex && label == enterLabel() -> FastKey(
+                        label,
+                        style = FastKeyStyle.ACCENT,
+                        description = "Enter",
+                        onPress = ::enter,
+                    )
+                    else -> fastCharacter(label, if (label in setOf("-", ".", ",", "+")) FastKeyStyle.FUNCTION else FastKeyStyle.LETTER)
+                }
+            }
+        }
+    }
+
+    private fun fastCharacter(label: String, style: FastKeyStyle = FastKeyStyle.LETTER) = FastKey(
+        label = label,
+        style = style,
+        onPress = { commitKey(label) },
+    )
+
+    private fun fastBackspace(weight: Float = 1.45f) = FastKey(
+        label = "⌫",
+        weight = weight,
+        style = FastKeyStyle.FUNCTION,
+        description = "Backspace",
+        repeatable = true,
+        onPress = {
+            repeatingKeyActive = true
+            backspace()
+        },
+        onRelease = {
+            repeatingKeyActive = false
+            syncAutoShift()
+            scheduleSuggestionRefresh()
+        },
+    )
+
+    private fun fastBottomRow(): List<FastKey> = listOf(
+        FastKey(
+            label = if (symbols) "ABC" else "?123",
+            weight = 1.2f,
+            style = FastKeyStyle.FUNCTION,
+            description = "Switch symbols",
+            onPress = {
+                symbols = !symbols
+                symbolPage = 0
+                keyGridView?.updateRows(buildFastRows())
+                scheduleSuggestionRefresh()
+            },
+        ),
+        FastKey(
+            label = "☺",
+            weight = .8f,
+            style = FastKeyStyle.FUNCTION,
+            description = "Emoji",
+            onPress = {
+                emojiPanelExpanded = true
+                featurePanelExpanded = false
+                refreshKeyboard()
+            },
+        ),
+        FastKey(
+            label = if (emailOrUriEditor()) "@" else ",",
+            weight = .75f,
+            style = FastKeyStyle.FUNCTION,
+            onPress = { commitKey(if (emailOrUriEditor()) "@" else ",") },
+        ),
+        FastKey("English", 3.15f, description = "Space", onPress = { commitKey(" ") }),
+        FastKey(".", .75f, FastKeyStyle.FUNCTION, onPress = { commitKey(".") }),
+        FastKey("⌨", .85f, FastKeyStyle.FUNCTION, "Switch keyboard", onPress = ::switchKeyboard),
+        FastKey(enterLabel(), 1.25f, FastKeyStyle.ACCENT, "Enter", onPress = ::enter),
+    )
+
+    private fun syncSystemClipboard() {
+        val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = manager.primaryClip ?: return
+        for (index in 0 until clip.itemCount.coerceAtMost(3)) {
+            clip.getItemAt(index).coerceToText(this)?.toString()?.let(::saveToAylooClipboard)
+        }
+    }
+
+    private fun addClipboardPanel(root: LinearLayout) {
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val header = row().apply { gravity = Gravity.CENTER_VERTICAL }
+        addCompactAction(header, "ABC", KeyStyle.ACCENT) {
+            featurePanelExpanded = false
+            refreshKeyboard()
+        }
+        header.addView(textView("Session clipboard", 13f, palette.text, Typeface.BOLD).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(9), 0, dp(4), 0)
+        }, LinearLayout.LayoutParams(0, dp(38), 1f))
+        addCompactAction(header, "Clear", KeyStyle.QUIET) {
+            aylooClipboard.clear()
+            refreshKeyboard()
+        }
+        panel.addView(header, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
+
+        val entries = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(2), 0, dp(2), dp(2)) }
+        if (aylooClipboard.isEmpty()) {
+            entries.addView(textView("Copy text, or create something with Ayloo, then open this panel.", 13f, palette.secondaryText).apply {
+                gravity = Gravity.CENTER
+                textAlignment = View.TEXT_ALIGNMENT_CENTER
+                setPadding(dp(24), dp(20), dp(24), dp(20))
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(122)))
+        } else {
+            aylooClipboard.forEach { value ->
+                val label = value.replace('\n', ' ').let { if (it.length > 70) it.take(70) + "…" else it }
+                val item = createKeyView(label, 13f, KeyStyle.QUIET, radiusDp = 9, contentDescription = "Insert clipboard item")
+                item.gravity = Gravity.CENTER_VERTICAL
+                item.maxLines = 2
+                item.ellipsize = TextUtils.TruncateAt.END
+                item.setPadding(dp(12), dp(4), dp(12), dp(4))
+                bindPress(item) {
+                    currentInputConnection?.commitText(value, 1)
+                    scheduleSuggestionRefresh()
+                }
+                entries.addView(item, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(46)).apply {
+                    setMargins(0, dp(2), 0, dp(2))
+                })
+            }
+        }
+        panel.addView(ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            addView(entries)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(panel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(PANEL_HEIGHT_DP)))
+    }
+
+    private fun addEmojiPanel(root: LinearLayout) {
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val categoryContent = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        addCompactAction(categoryContent, "ABC", KeyStyle.ACCENT) {
+            emojiPanelExpanded = false
+            refreshKeyboard()
+        }
+        val categories = listOf(
+            "Recent" to "◷",
+            "Smileys" to "😀",
+            "People" to "👋",
+            "Nature" to "🌿",
+            "Food" to "🍕",
+            "Symbols" to "♥",
+        )
+        categories.forEach { (category, icon) ->
+            val button = createKeyView(
+                icon,
+                17f,
+                KeyStyle.QUIET,
+                selected = emojiCategory == category,
+                radiusDp = 15,
+                contentDescription = "$category emojis",
+            )
+            bindPress(button) {
+                emojiCategory = category
+                refreshKeyboard()
+            }
+            categoryContent.addView(button, LinearLayout.LayoutParams(dp(48), dp(32)).apply { setMargins(dp(2), 0, dp(2), 0) })
+        }
+        panel.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(categoryContent)
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(40)))
+
+        val emojis = if (emojiCategory == "Recent") {
+            recentEmojis.toList().ifEmpty { EmojiCatalog.categories.getValue("Smileys") }
+        } else {
+            EmojiCatalog.categories[emojiCategory].orEmpty()
+        }.take(32)
+        val grid = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        emojis.chunked(8).forEach { emojiRow ->
+            grid.addView(row().also { row ->
+                emojiRow.forEach { emoji ->
+                    val button = createKeyView(emoji, 21f, KeyStyle.QUIET, radiusDp = 8, contentDescription = "Insert emoji")
+                    bindPress(button) { insertEmoji(emoji) }
+                    row.addView(button, LinearLayout.LayoutParams(0, dp(40), 1f).apply {
+                        setMargins(dp(2), dp(1), dp(2), dp(1))
+                    })
+                }
+                repeat(8 - emojiRow.size) { addSpacer(row, 1f) }
+            }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(42)))
+        }
+        panel.addView(grid, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(panel, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(PANEL_HEIGHT_DP)))
+    }
+
+    private fun insertEmoji(emoji: String) {
+        currentInputConnection?.commitText(emoji, 1)
+        recentEmojis.remove(emoji)
+        recentEmojis.addFirst(emoji)
+        while (recentEmojis.size > MAX_RECENT_EMOJIS) recentEmojis.removeLast()
+        scheduleSuggestionRefresh()
+    }
+
     private fun addLetterKeys(root: LinearLayout) {
         val rows = KeyboardLayout.letters(false)
         root.addView(row().also { top ->
@@ -400,6 +750,10 @@ class AylooInputMethodService : InputMethodService() {
 
     /** Capitalization changes update 27 existing views instead of rebuilding the whole IME. */
     private fun updateShiftUi() {
+        keyGridView?.let { grid ->
+            grid.updateRows(buildFastRows())
+            return
+        }
         alphabetKeyViews.forEach { (view, letter) -> view.text = letterForCurrentShift(letter) }
         shiftKeyView?.let { shift ->
             val selected = shiftState != ShiftState.OFF
@@ -894,6 +1248,7 @@ class AylooInputMethodService : InputMethodService() {
             shiftState = ShiftState.OFF
             updateShiftUi()
         }
+        scheduleSuggestionRefresh()
     }
 
     /** One tap deletes one code point; holding accelerates through text like a standard keyboard. */
@@ -905,6 +1260,7 @@ class AylooInputMethodService : InputMethodService() {
         } finally {
             connection.endBatchEdit()
         }
+        scheduleSuggestionRefresh()
     }
 
     private fun enter() {
@@ -914,6 +1270,7 @@ class AylooInputMethodService : InputMethodService() {
         val shouldPerformAction = action !in setOf(EditorInfo.IME_ACTION_NONE, EditorInfo.IME_ACTION_UNSPECIFIED) &&
             options and EditorInfo.IME_FLAG_NO_ENTER_ACTION == 0
         if (!shouldPerformAction || !connection.performEditorAction(action)) connection.commitText("\n", 1)
+        scheduleSuggestionRefresh()
     }
 
     private fun switchKeyboard() {
@@ -949,5 +1306,12 @@ class AylooInputMethodService : InputMethodService() {
         const val MIN_AUDIO_BYTES = 1_000L
         const val MAX_CLIPBOARD_ITEMS = 8
         const val DOUBLE_TAP_MS = 420L
+        const val MAX_SUGGESTIONS = 3
+        const val MAX_SUGGESTION_CONTEXT = 96
+        // Debounce predictions so rapid typing never competes with the touch/input path.
+        const val SUGGESTION_DELAY_MS = 45L
+        const val KEY_GRID_HEIGHT_DP = 208
+        const val PANEL_HEIGHT_DP = 208
+        const val MAX_RECENT_EMOJIS = 32
     }
 }
