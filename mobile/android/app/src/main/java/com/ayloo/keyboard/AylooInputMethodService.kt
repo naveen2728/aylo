@@ -1,20 +1,16 @@
 package com.ayloo.keyboard
 
 import android.Manifest
-import android.animation.Animator
-import android.animation.ObjectAnimator
-import android.animation.PropertyValuesHolder
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.StateListDrawable
 import android.inputmethodservice.InputMethodService
 import android.media.MediaRecorder
 import android.os.Build
@@ -25,9 +21,7 @@ import android.text.InputType
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
-import android.view.SoundEffectConstants
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -69,7 +63,6 @@ class AylooInputMethodService : InputMethodService() {
     private var activeAudio: File? = null
     private var keyboardRoot: LinearLayout? = null
     private var statusView: TextView? = null
-    private var orbAnimator: Animator? = null
     private val alphabetKeyViews = mutableListOf<Pair<TextView, String>>()
     private var shiftKeyView: TextView? = null
     private var repeatingKeyActive = false
@@ -210,7 +203,6 @@ class AylooInputMethodService : InputMethodService() {
         val root = keyboardRoot ?: return
         stopActiveRepeat?.invoke()
         stopActiveRepeat = null
-        orbAnimator?.cancel()
         alphabetKeyViews.clear()
         shiftKeyView = null
         root.removeAllViews()
@@ -269,7 +261,6 @@ class AylooInputMethodService : InputMethodService() {
             toolbar.addView(orb, LinearLayout.LayoutParams(dp(38), dp(38)).apply {
                 setMargins(dp(2), 0, dp(2), 0)
             })
-            animateOrb(orb)
         }
 
         if (aylooClipboard.isNotEmpty()) {
@@ -563,7 +554,7 @@ class AylooInputMethodService : InputMethodService() {
         view.setTextColor(textColor)
         view.typeface = Typeface.create("sans-serif", if (selected) Typeface.BOLD else Typeface.NORMAL)
         view.elevation = if (style == KeyStyle.LETTER) dp(1).toFloat() else 0f
-        view.background = rippleBackground(baseColor, dp(radiusDp).toFloat())
+        view.background = instantKeyBackground(baseColor, dp(radiusDp).toFloat())
     }
 
     private fun textView(label: String, size: Float, color: Int, typefaceStyle: Int = Typeface.NORMAL) = TextView(this).apply {
@@ -598,11 +589,8 @@ class AylooInputMethodService : InputMethodService() {
                     holding = true
                     if (repeatable) repeatingKeyActive = true
                     touched.isPressed = true
-                    touched.animate().cancel()
-                    touched.animate().scaleX(.975f).scaleY(.975f).setDuration(30L).start()
-                    touched.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                    touched.playSoundEffect(SoundEffectConstants.CLICK)
-                    // IME keys commit on touch-down so fast alternating taps cannot be dropped.
+                    // The touch path deliberately does no animation, sound, or haptic work.
+                    // IME keys commit immediately so fast alternating taps cannot be dropped.
                     onTap()
                     if (repeatable) {
                         repeatCount = 0
@@ -625,8 +613,6 @@ class AylooInputMethodService : InputMethodService() {
                         if (repeatable) stopActiveRepeat = null
                         touched.isPressed = false
                         mainHandler.removeCallbacks(repeat)
-                        touched.animate().cancel()
-                        touched.animate().scaleX(1f).scaleY(1f).setDuration(45L).start()
                         onRelease?.invoke()
                     }
                     true
@@ -638,8 +624,6 @@ class AylooInputMethodService : InputMethodService() {
                     if (repeatable) stopActiveRepeat = null
                     touched.isPressed = false
                     mainHandler.removeCallbacks(repeat)
-                    touched.animate().cancel()
-                    touched.animate().scaleX(1f).scaleY(1f).setDuration(45L).start()
                     if (wasHolding) onRelease?.invoke()
                     true
                 }
@@ -650,8 +634,6 @@ class AylooInputMethodService : InputMethodService() {
                     if (repeatable) stopActiveRepeat = null
                     touched.isPressed = false
                     mainHandler.removeCallbacks(repeat)
-                    touched.animate().cancel()
-                    touched.animate().scaleX(1f).scaleY(1f).setDuration(45L).start()
                     if (wasHolding) onRelease?.invoke()
                     true
                 }
@@ -666,31 +648,15 @@ class AylooInputMethodService : InputMethodService() {
         if (stroke != null) setStroke(dp(1), stroke)
     }
 
-    private fun rippleBackground(color: Int, radius: Float): RippleDrawable {
-        val content = roundedBackground(color, radius, palette.divider)
-        val mask = roundedBackground(Color.WHITE, radius)
-        return RippleDrawable(ColorStateList.valueOf(Color.argb(55, 255, 255, 255)), content, mask)
-    }
-
-    private fun animateOrb(view: TextView) {
-        orbAnimator = when (orbState) {
-            OrbState.RECORDING -> ObjectAnimator.ofPropertyValuesHolder(
-                view,
-                PropertyValuesHolder.ofFloat(View.SCALE_X, .88f, 1f),
-                PropertyValuesHolder.ofFloat(View.SCALE_Y, .88f, 1f),
-                PropertyValuesHolder.ofFloat(View.ALPHA, .72f, 1f),
-            ).apply {
-                duration = 650L
-                repeatCount = ObjectAnimator.INFINITE
-                repeatMode = ObjectAnimator.REVERSE
-                start()
-            }
-            OrbState.PROCESSING -> ObjectAnimator.ofFloat(view, View.ROTATION, 0f, 360f).apply {
-                duration = 950L
-                repeatCount = ObjectAnimator.INFINITE
-                start()
-            }
-            else -> null
+    private fun instantKeyBackground(color: Int, radius: Float): StateListDrawable {
+        val pressed = Color.rgb(
+            (Color.red(color) * .78f).toInt(),
+            (Color.green(color) * .78f).toInt(),
+            (Color.blue(color) * .78f).toInt(),
+        )
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_pressed), roundedBackground(pressed, radius, palette.divider))
+            addState(intArrayOf(), roundedBackground(color, radius, palette.divider))
         }
     }
 
@@ -961,14 +927,13 @@ class AylooInputMethodService : InputMethodService() {
     private fun orbLabel() = when (orbState) {
         OrbState.IDLE, OrbState.SUCCESS, OrbState.ERROR -> "✦"
         OrbState.RECORDING -> "■"
-        OrbState.PROCESSING -> "◌"
+        OrbState.PROCESSING -> "…"
         OrbState.RETRY -> "↻"
     }
 
     override fun onDestroy() {
         cancelRecordingTimers()
         transientReset?.let(mainHandler::removeCallbacks)
-        orbAnimator?.cancel()
         if (recorder != null) {
             runCatching { recorder?.stop() }
             recorder?.release()

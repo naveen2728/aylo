@@ -19,7 +19,7 @@ recorded after tapping the orb is uploaded. Voice capture is disabled in passwor
 
 Push this repository to GitHub, then open **Actions > Build Android prototype APK > Run workflow**.
 GitHub builds the APK in the cloud; when it completes, open the run and download the
-`ayloo-keyboard-0.4.1-beta-apk` artifact. Before making an internal test build that can reach the
+`ayloo-keyboard-0.4.2-beta-apk` artifact. Before making an internal test build that can reach the
 backend, add repository secrets named `AYLOO_API_BASE_URL` and `AYLOO_TESTER_TOKEN` under
 **Settings > Secrets and variables > Actions**. The downloaded artifact expires after 14 days.
 The workflow caches its internal debug signing key so later beta builds can update this build.
