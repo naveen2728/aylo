@@ -63,7 +63,6 @@ class AylooInputMethodService : InputMethodService() {
     private var recorder: MediaRecorder? = null
     private var activeAudio: File? = null
     private var keyboardRoot: LinearLayout? = null
-    private var statusView: TextView? = null
     private val alphabetKeyViews = mutableListOf<Pair<TextView, String>>()
     private var shiftKeyView: TextView? = null
     private var repeatingKeyActive = false
@@ -78,10 +77,8 @@ class AylooInputMethodService : InputMethodService() {
     private var activeMode = VoiceMode.DICTATE
     private var recordingStartedAtMs = 0L
     private var stopRecording: Runnable? = null
-    private var recordingTicker: Runnable? = null
     private var transientReset: Runnable? = null
     private var orbState = OrbState.IDLE
-    private var status = "Ayloo"
     private var featurePanelExpanded = false
     private var emojiPanelExpanded = false
     private var emojiCategory = "Smileys"
@@ -102,29 +99,29 @@ class AylooInputMethodService : InputMethodService() {
                 Configuration.UI_MODE_NIGHT_YES
             return if (night) {
                 KeyboardPalette(
-                    background = Color.rgb(29, 30, 34),
-                    key = Color.rgb(48, 50, 55),
-                    functionKey = Color.rgb(61, 63, 69),
-                    surface = Color.rgb(38, 40, 45),
-                    text = Color.rgb(244, 245, 248),
-                    secondaryText = Color.rgb(177, 181, 191),
-                    accent = Color.rgb(132, 113, 255),
-                    accentSoft = Color.rgb(61, 55, 94),
-                    recording = Color.rgb(230, 78, 96),
-                    divider = Color.argb(38, 255, 255, 255),
+                    background = Color.rgb(32, 33, 36),
+                    key = Color.rgb(60, 64, 67),
+                    functionKey = Color.rgb(78, 81, 85),
+                    surface = Color.rgb(48, 49, 52),
+                    text = Color.rgb(248, 249, 250),
+                    secondaryText = Color.rgb(189, 193, 198),
+                    accent = Color.rgb(66, 133, 244),
+                    accentSoft = Color.rgb(57, 68, 87),
+                    recording = Color.rgb(217, 48, 37),
+                    divider = Color.TRANSPARENT,
                 )
             } else {
                 KeyboardPalette(
-                    background = Color.rgb(235, 238, 242),
-                    key = Color.WHITE,
-                    functionKey = Color.rgb(211, 217, 224),
-                    surface = Color.rgb(222, 226, 232),
-                    text = Color.rgb(37, 39, 45),
-                    secondaryText = Color.rgb(94, 99, 110),
-                    accent = Color.rgb(99, 79, 231),
-                    accentSoft = Color.rgb(218, 212, 255),
-                    recording = Color.rgb(210, 54, 75),
-                    divider = Color.argb(35, 30, 35, 45),
+                    background = Color.rgb(232, 234, 237),
+                    key = Color.rgb(248, 249, 250),
+                    functionKey = Color.rgb(218, 220, 224),
+                    surface = Color.rgb(241, 243, 244),
+                    text = Color.rgb(32, 33, 36),
+                    secondaryText = Color.rgb(95, 99, 104),
+                    accent = Color.rgb(26, 115, 232),
+                    accentSoft = Color.rgb(210, 227, 252),
+                    recording = Color.rgb(217, 48, 37),
+                    divider = Color.TRANSPARENT,
                 )
             }
         }
@@ -136,7 +133,6 @@ class AylooInputMethodService : InputMethodService() {
             activeAudio = pending.audio
             activeMode = pending.mode
             orbState = OrbState.RETRY
-            status = "Saved recording ready to retry"
         }
     }
 
@@ -165,7 +161,6 @@ class AylooInputMethodService : InputMethodService() {
         featurePanelExpanded = false
         emojiPanelExpanded = false
         shiftState = initialShiftState()
-        if (secureEditor) status = "Voice is off in password fields" else if (orbState == OrbState.IDLE) status = "Ayloo"
         refreshKeyboard()
     }
 
@@ -229,61 +224,21 @@ class AylooInputMethodService : InputMethodService() {
         when {
             featurePanelExpanded -> addClipboardPanel(root)
             emojiPanelExpanded -> addEmojiPanel(root)
-            else -> {
-                if (!numericEditor && !secureEditor) addSuggestionRow(root)
-                addFastKeyboard(root)
-            }
+            else -> addFastKeyboard(root)
         }
     }
 
     private fun addAylooToolbar(root: LinearLayout) {
         val toolbar = row().apply {
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(2), 0, dp(2), dp(1))
+            setPadding(dp(1), 0, dp(1), dp(1))
         }
-        toolbar.addView(textView("✦", 17f, palette.accent, Typeface.BOLD).apply {
-            gravity = Gravity.CENTER
-            contentDescription = "Ayloo"
-        }, LinearLayout.LayoutParams(dp(30), dp(38)))
-
-        addModeToggle(toolbar)
-
-        statusView = textView(status, 11.5f, palette.secondaryText).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-            setPadding(dp(8), 0, dp(4), 0)
-        }.also { toolbar.addView(it, LinearLayout.LayoutParams(0, dp(38), 1f)) }
-
-        val orbEnabled = !secureEditor && orbState != OrbState.PROCESSING
-        createKeyView(
-            label = orbLabel(),
-            textSize = if (orbState == OrbState.PROCESSING) 13f else 16f,
-            style = if (orbState == OrbState.RECORDING) KeyStyle.DANGER else KeyStyle.ACCENT,
-            selected = orbState == OrbState.RECORDING,
-            radiusDp = 19,
-            contentDescription = when (orbState) {
-                OrbState.RECORDING -> "Stop voice recording"
-                OrbState.PROCESSING -> "Processing voice request"
-                OrbState.RETRY -> "Retry saved voice request"
-                else -> if (activeMode == VoiceMode.DICTATE) "Start dictation" else "Start AI command"
-            },
-        ).apply {
-            isEnabled = orbEnabled
-            alpha = if (orbEnabled) 1f else .38f
-        }.also { orb ->
-            bindPress(orb, onTap = ::onOrbTapped)
-            toolbar.addView(orb, LinearLayout.LayoutParams(dp(38), dp(38)).apply {
-                setMargins(dp(2), 0, dp(2), 0)
-            })
-        }
-
         val clips = createKeyView(
             label = if (featurePanelExpanded) "×" else "▣",
-            textSize = 16f,
+            textSize = 15f,
             style = KeyStyle.QUIET,
             selected = featurePanelExpanded,
-            radiusDp = 18,
+            radiusDp = 16,
             contentDescription = if (featurePanelExpanded) "Close clipboard" else "Open clipboard",
         )
         bindPress(clips) {
@@ -292,34 +247,72 @@ class AylooInputMethodService : InputMethodService() {
             emojiPanelExpanded = false
             refreshKeyboard()
         }
-        toolbar.addView(clips, LinearLayout.LayoutParams(dp(36), dp(36)).apply {
-            setMargins(dp(2), 0, 0, 0)
+        toolbar.addView(clips, LinearLayout.LayoutParams(dp(34), dp(32)).apply {
+            setMargins(dp(1), 0, dp(2), 0)
         })
+
+        repeat(MAX_SUGGESTIONS) { index ->
+            val suggestion = createKeyView(
+                label = "",
+                textSize = 12.5f,
+                style = KeyStyle.QUIET,
+                radiusDp = 7,
+                contentDescription = "Word suggestion ${index + 1}",
+            ).apply { isEnabled = false; alpha = .35f; maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+            bindPress(suggestion) { visibleSuggestions.getOrNull(index)?.let(::acceptSuggestion) }
+            suggestionViews += suggestion
+            toolbar.addView(suggestion, LinearLayout.LayoutParams(0, dp(32), 1f).apply {
+                setMargins(dp(1), 0, dp(1), 0)
+            })
+        }
+
+        addModeToggle(toolbar)
+
+        val microphoneEnabled = !secureEditor && orbState != OrbState.PROCESSING
+        toolbar.addView(
+            MicrophoneButtonView(
+                context = this,
+                state = orbState,
+                colors = MicrophoneColors(
+                    idle = palette.accent,
+                    recording = palette.recording,
+                    processing = palette.functionKey,
+                    retry = Color.rgb(234, 134, 0),
+                ),
+                onPress = ::onOrbTapped,
+            ).apply {
+                isEnabled = microphoneEnabled
+                alpha = if (microphoneEnabled) 1f else .38f
+            },
+            LinearLayout.LayoutParams(dp(36), dp(36)).apply { setMargins(dp(2), 0, dp(1), 0) },
+        )
+
         root.addView(toolbar, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(41)))
+        scheduleSuggestionRefresh()
     }
 
     private fun addModeToggle(toolbar: LinearLayout) {
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(2), dp(2), dp(2), dp(2))
-            background = roundedBackground(palette.surface, dp(17).toFloat(), palette.divider)
+            setPadding(dp(1), dp(1), dp(1), dp(1))
+            background = roundedBackground(palette.surface, dp(15).toFloat(), palette.divider)
             alpha = if (secureEditor || orbState == OrbState.RECORDING || orbState == OrbState.PROCESSING) .55f else 1f
         }
         fun segment(label: String, mode: VoiceMode, description: String) {
             val selected = activeMode == mode
-            val view = textView(label, 11.5f, if (selected) palette.accent else palette.secondaryText, if (selected) Typeface.BOLD else Typeface.NORMAL).apply {
+            val view = textView(label, 10.5f, if (selected) palette.accent else palette.secondaryText, if (selected) Typeface.BOLD else Typeface.NORMAL).apply {
                 gravity = Gravity.CENTER
-                background = roundedBackground(if (selected) palette.accentSoft else Color.TRANSPARENT, dp(14).toFloat())
+                background = roundedBackground(if (selected) palette.accentSoft else Color.TRANSPARENT, dp(13).toFloat())
                 contentDescription = description
                 isEnabled = !secureEditor && orbState !in setOf(OrbState.RECORDING, OrbState.PROCESSING, OrbState.RETRY)
             }
             bindPress(view) { selectMode(mode) }
-            container.addView(view, LinearLayout.LayoutParams(0, dp(30), 1f))
+            container.addView(view, LinearLayout.LayoutParams(0, dp(28), 1f))
         }
-        segment("Dictate", VoiceMode.DICTATE, "Use exact voice dictation")
+        segment("D", VoiceMode.DICTATE, "Use exact voice dictation")
         segment("AI", VoiceMode.COMMAND, "Use AI voice command")
-        toolbar.addView(container, LinearLayout.LayoutParams(dp(118), dp(34)).apply { setMargins(dp(2), 0, dp(2), 0) })
+        toolbar.addView(container, LinearLayout.LayoutParams(dp(70), dp(30)).apply { setMargins(dp(2), 0, dp(1), 0) })
     }
 
     private fun addRetryPanel(root: LinearLayout) {
@@ -1040,17 +1033,13 @@ class AylooInputMethodService : InputMethodService() {
     private fun selectMode(mode: VoiceMode) {
         if (orbState == OrbState.IDLE || orbState == OrbState.SUCCESS || orbState == OrbState.ERROR) {
             activeMode = mode
-            status = if (mode == VoiceMode.DICTATE) "Exact speech to text" else "Ask, rewrite or create"
             refreshKeyboard()
-            scheduleIdleReset(2_000L)
         }
     }
 
     private fun hasMicPermission() = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun requestMicPermission() {
-        status = "Allow microphone, then tap the orb again"
-        refreshKeyboard()
         startActivity(Intent(this, PermissionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
@@ -1072,36 +1061,15 @@ class AylooInputMethodService : InputMethodService() {
             activeAudio = target
             recordingStartedAtMs = SystemClock.elapsedRealtime()
             orbState = OrbState.RECORDING
-            status = listeningStatus(0L)
             refreshKeyboard()
-            startRecordingTicker()
             stopRecording = Runnable { if (orbState == OrbState.RECORDING) finishRecordingAndSubmit() }.also {
                 mainHandler.postDelayed(it, MAX_RECORDING_MS)
             }
         } catch (_: Exception) {
             pendingStore.discard(target)
             orbState = OrbState.ERROR
-            status = "Microphone unavailable · tap to retry"
             refreshKeyboard()
         }
-    }
-
-    private fun startRecordingTicker() {
-        recordingTicker?.let(mainHandler::removeCallbacks)
-        recordingTicker = object : Runnable {
-            override fun run() {
-                if (orbState != OrbState.RECORDING) return
-                val elapsed = SystemClock.elapsedRealtime() - recordingStartedAtMs
-                statusView?.text = listeningStatus(elapsed)
-                mainHandler.postDelayed(this, 1_000L)
-            }
-        }.also { mainHandler.post(it) }
-    }
-
-    private fun listeningStatus(elapsedMs: Long): String {
-        val seconds = (elapsedMs / 1_000L).coerceAtMost(30L)
-        val label = if (activeMode == VoiceMode.DICTATE) "Listening" else "Listening for AI"
-        return "$label · 0:${seconds.toString().padStart(2, '0')}"
     }
 
     private fun finishRecordingAndSubmit() {
@@ -1118,7 +1086,6 @@ class AylooInputMethodService : InputMethodService() {
             pendingStore.discard(audio)
             activeAudio = null
             orbState = OrbState.ERROR
-            status = "Too short · tap and speak again"
             refreshKeyboard()
             scheduleIdleReset(3_000L)
             return
@@ -1130,7 +1097,6 @@ class AylooInputMethodService : InputMethodService() {
         val requestSessionId = inputSessionId
         pendingStore.retain(audio, durationMs, mode)
         orbState = OrbState.PROCESSING
-        status = if (mode == VoiceMode.DICTATE) "Transcribing…" else "Creating answer…"
         refreshKeyboard()
         executor.execute {
             try {
@@ -1145,20 +1111,13 @@ class AylooInputMethodService : InputMethodService() {
                     pendingStore.discard(audio)
                     activeAudio = null
                     orbState = OrbState.SUCCESS
-                    status = when {
-                        !canInsert && mode == VoiceMode.DICTATE -> "Saved in Ayloo clipboard"
-                        !canInsert -> "Copied · field changed"
-                        mode == VoiceMode.DICTATE -> "Inserted"
-                        else -> "Inserted · copied"
-                    }
                     refreshKeyboard()
                     scheduleIdleReset(2_400L)
                 }
-            } catch (exception: Exception) {
+            } catch (_: Exception) {
                 mainHandler.post {
                     activeAudio = audio
                     orbState = OrbState.RETRY
-                    status = exception.message ?: "Could not connect · recording saved"
                     featurePanelExpanded = false
                     refreshKeyboard()
                 }
@@ -1171,7 +1130,6 @@ class AylooInputMethodService : InputMethodService() {
         transientReset = Runnable {
             if (orbState == OrbState.SUCCESS || orbState == OrbState.ERROR || orbState == OrbState.IDLE) {
                 orbState = OrbState.IDLE
-                status = if (secureEditor) "Voice is off in password fields" else "Ayloo"
                 refreshKeyboard()
             }
         }.also { mainHandler.postDelayed(it, delayMs) }
@@ -1179,9 +1137,7 @@ class AylooInputMethodService : InputMethodService() {
 
     private fun cancelRecordingTimers() {
         stopRecording?.let(mainHandler::removeCallbacks)
-        recordingTicker?.let(mainHandler::removeCallbacks)
         stopRecording = null
-        recordingTicker = null
     }
 
     private fun cancelActiveRecording() {
@@ -1192,7 +1148,6 @@ class AylooInputMethodService : InputMethodService() {
         pendingStore.discard(activeAudio)
         activeAudio = null
         orbState = OrbState.IDLE
-        status = if (secureEditor) "Voice is off in password fields" else "Ayloo"
         refreshKeyboard()
     }
 
@@ -1202,7 +1157,6 @@ class AylooInputMethodService : InputMethodService() {
             submit(pending.audio, pending.durationMs, pending.mode)
         } ?: run {
             orbState = OrbState.IDLE
-            status = "No saved recording"
             refreshKeyboard()
             scheduleIdleReset(1_800L)
         }
@@ -1213,7 +1167,6 @@ class AylooInputMethodService : InputMethodService() {
         activeAudio = null
         orbState = OrbState.IDLE
         featurePanelExpanded = false
-        status = "Recording discarded"
         refreshKeyboard()
         scheduleIdleReset(1_800L)
     }

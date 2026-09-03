@@ -133,8 +133,10 @@ internal class FastKeyboardView(
             }
             fillPaint.color = if (index in pressedIndices) darken(baseColor) else baseColor
             canvas.drawRoundRect(geometry.bounds, dp(7f), dp(7f), fillPaint)
-            strokePaint.color = colors.stroke
-            canvas.drawRoundRect(geometry.bounds, dp(7f), dp(7f), strokePaint)
+            if (Color.alpha(colors.stroke) != 0) {
+                strokePaint.color = colors.stroke
+                canvas.drawRoundRect(geometry.bounds, dp(7f), dp(7f), strokePaint)
+            }
 
             textPaint.color = if (key.style == FastKeyStyle.ACCENT) colors.accentText else colors.text
             textPaint.textSize = sp(

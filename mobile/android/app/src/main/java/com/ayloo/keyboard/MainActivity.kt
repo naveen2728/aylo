@@ -52,7 +52,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
-                    primary = AylooPurple,
+                    primary = AylooBlue,
                     surface = Panel,
                     background = Background,
                     onSurface = Color.White,
@@ -88,7 +88,7 @@ private fun AylooSetupScreen(enabled: Boolean, onEnable: () -> Unit, onChoose: (
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFF12131A), Color(0xFF191629), Color(0xFF12131A)),
+                    listOf(Color(0xFF202124), Color(0xFF263348), Color(0xFF202124)),
                 ),
             )
             .padding(horizontal = 22.dp, vertical = 24.dp),
@@ -99,7 +99,7 @@ private fun AylooSetupScreen(enabled: Boolean, onEnable: () -> Unit, onChoose: (
         ) {
             Surface(
                 modifier = Modifier.clip(RoundedCornerShape(24.dp)),
-                color = Color(0xFF6757E8),
+                color = AylooBlue,
                 shadowElevation = 12.dp,
             ) {
                 Text("✦", color = Color.White, fontSize = 30.sp, modifier = Modifier.padding(horizontal = 17.dp, vertical = 10.dp))
@@ -137,14 +137,14 @@ private fun AylooSetupScreen(enabled: Boolean, onEnable: () -> Unit, onChoose: (
                             onClick = onEnable,
                             modifier = Modifier.weight(1f).height(48.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = if (enabled) Color(0xFF32313D) else AylooPurple),
+                            colors = ButtonDefaults.buttonColors(containerColor = if (enabled) Color(0xFF3C4043) else AylooBlue),
                         ) { Text(if (enabled) "Settings" else "Enable") }
                         Button(
                             onClick = onChoose,
                             enabled = enabled,
                             modifier = Modifier.weight(1f).height(48.dp),
                             shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = AylooPurple),
+                            colors = ButtonDefaults.buttonColors(containerColor = AylooBlue),
                         ) { Text("Choose keyboard") }
                     }
                 }
@@ -196,7 +196,7 @@ private fun SetupStep(number: String, title: String, detail: String, complete: B
     }
 }
 
-private val AylooPurple = Color(0xFF7868FF)
-private val Background = Color(0xFF12131A)
-private val Panel = Color(0xFF202029)
-private val Muted = Color(0xFFB4B3C2)
+private val AylooBlue = Color(0xFF1A73E8)
+private val Background = Color(0xFF202124)
+private val Panel = Color(0xFF303134)
+private val Muted = Color(0xFFBDC1C6)
