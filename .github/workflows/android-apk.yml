@@ -82,7 +82,7 @@ jobs:
       - name: Test and assemble debug APK
         working-directory: mobile/android
         env:
-          AYLOO_SIGNING_STORE_FILE: ${{ github.workspace }}/.ci-signing/debug.keystore
+          AYLOO_SIGNING_STORE_FILE: ${{ runner.temp }}/ayloo-signing/debug.keystore
         run: |
           mkdir -p "$(dirname "$AYLOO_SIGNING_STORE_FILE")"
           cp "$HOME/.android/debug.keystore" "$AYLOO_SIGNING_STORE_FILE"
@@ -98,10 +98,12 @@ jobs:
           keytool -exportcert -keystore "$HOME/.android/debug.keystore" -storepass android \
             -alias androiddebugkey -file restored-signing-certificate.der
           expected_certificate=$(sha256sum restored-signing-certificate.der | cut -d ' ' -f 1)
+          pinned_certificate=7978b368eb4ce084befd36912261405f1fa8be87d34353e6f714cc5e7c8ed96e
+          test "$expected_certificate" = "$pinned_certificate"
           cert_report=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Ayloo-Keyboard-0.6.0-beta.apk)
           echo "$cert_report"
           actual_certificate=$(echo "$cert_report" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
-          test "$actual_certificate" = "$expected_certificate"
+          test "$actual_certificate" = "$pinned_certificate"
           echo "$actual_certificate" > Ayloo-Keyboard-0.6.0-beta.certificate.sha256
           sha256sum Ayloo-Keyboard-0.6.0-beta.apk > Ayloo-Keyboard-0.6.0-beta.apk.sha256
 

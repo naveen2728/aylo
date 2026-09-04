@@ -30,7 +30,8 @@ The cloud build is installed as **Ayloo Keyboard Beta** (`com.ayloo.keyboard.int
 older prototype. Earlier workflows accidentally produced a new disposable certificate on every
 run, so they cannot be upgraded safely. Version 0.6 explicitly uses the restored internal signing
 key; the workflow refuses to publish if that key is missing or if the finished APK does not match
-it. Future beta versions can therefore update version 0.6 normally.
+its pinned certificate. Future beta versions can therefore update version 0.6 normally. This is an
+internal debug identity; use a backed-up release keystore or Play App Signing before public release.
 
 ## Backend
 
