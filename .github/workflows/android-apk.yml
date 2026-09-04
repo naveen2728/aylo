@@ -76,11 +76,17 @@ jobs:
           cat > local.properties <<'EOF'
           AYLOO_API_BASE_URL=${{ secrets.AYLOO_API_BASE_URL }}
           AYLOO_TESTER_TOKEN=${{ secrets.AYLOO_TESTER_TOKEN }}
+          AYLOO_APPLICATION_ID=com.ayloo.keyboard.internal
           EOF
 
       - name: Test and assemble debug APK
         working-directory: mobile/android
-        run: gradle :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
+        env:
+          AYLOO_SIGNING_STORE_FILE: ${{ github.workspace }}/.ci-signing/debug.keystore
+        run: |
+          mkdir -p "$(dirname "$AYLOO_SIGNING_STORE_FILE")"
+          cp "$HOME/.android/debug.keystore" "$AYLOO_SIGNING_STORE_FILE"
+          gradle :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon --stacktrace
 
       - name: Name install file
         run: cp mobile/android/app/build/outputs/apk/debug/app-debug.apk Ayloo-Keyboard-0.6.0-beta.apk
@@ -88,10 +94,15 @@ jobs:
       - name: Verify package, certificate, and checksum
         run: |
           badging=$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging Ayloo-Keyboard-0.6.0-beta.apk | head -n 1)
-          echo "$badging" | grep -F "package: name='com.ayloo.keyboard' versionCode='13' versionName='0.6.0-beta'"
+          echo "$badging" | grep -F "package: name='com.ayloo.keyboard.internal' versionCode='13' versionName='0.6.0-beta'"
+          keytool -exportcert -keystore "$HOME/.android/debug.keystore" -storepass android \
+            -alias androiddebugkey -file restored-signing-certificate.der
+          expected_certificate=$(sha256sum restored-signing-certificate.der | cut -d ' ' -f 1)
           cert_report=$("$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs Ayloo-Keyboard-0.6.0-beta.apk)
           echo "$cert_report"
-          echo "$cert_report" | grep -Fi "Signer #1 certificate SHA-256 digest: 9816ba8080864f69fa8d00f89cb88d122414ee2cd2159b5d227bee4175d19646"
+          actual_certificate=$(echo "$cert_report" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test "$actual_certificate" = "$expected_certificate"
+          echo "$actual_certificate" > Ayloo-Keyboard-0.6.0-beta.certificate.sha256
           sha256sum Ayloo-Keyboard-0.6.0-beta.apk > Ayloo-Keyboard-0.6.0-beta.apk.sha256
 
       - name: Upload APK
@@ -101,5 +112,6 @@ jobs:
           path: |
             Ayloo-Keyboard-0.6.0-beta.apk
             Ayloo-Keyboard-0.6.0-beta.apk.sha256
+            Ayloo-Keyboard-0.6.0-beta.certificate.sha256
           if-no-files-found: error
           retention-days: 90

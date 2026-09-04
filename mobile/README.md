@@ -26,9 +26,11 @@ GitHub builds the APK in the cloud; when it completes, open the run and download
 `ayloo-keyboard-0.6.0-beta-apk` artifact. Before making an internal test build that can reach the
 backend, add repository secrets named `AYLOO_API_BASE_URL` and `AYLOO_TESTER_TOKEN` under
 **Settings > Secrets and variables > Actions**. The downloaded artifact expires after 90 days.
-The workflow caches its internal debug signing key so later beta builds can update this build.
-Because older workflow runs used disposable signing keys, upgrading from a pre-0.4 APK may require
-one final uninstall/reinstall; builds from 0.4 onward should update normally while that cache exists.
+The cloud build is installed as **Ayloo Keyboard Beta** (`com.ayloo.keyboard.internal`), beside any
+older prototype. Earlier workflows accidentally produced a new disposable certificate on every
+run, so they cannot be upgraded safely. Version 0.6 explicitly uses the restored internal signing
+key; the workflow refuses to publish if that key is missing or if the finished APK does not match
+it. Future beta versions can therefore update version 0.6 normally.
 
 ## Backend
 

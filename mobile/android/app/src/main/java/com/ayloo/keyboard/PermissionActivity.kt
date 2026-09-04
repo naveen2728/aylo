@@ -5,9 +5,10 @@ import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Bundle
 
-internal const val ACTION_MICROPHONE_PERMISSION_RESULT = "com.ayloo.keyboard.MICROPHONE_PERMISSION_RESULT"
+internal val ACTION_MICROPHONE_PERMISSION_RESULT =
+    "${BuildConfig.APPLICATION_ID}.MICROPHONE_PERMISSION_RESULT"
 internal const val EXTRA_MICROPHONE_GRANTED = "microphone_granted"
-internal const val INTERNAL_BROADCAST_PERMISSION = "com.ayloo.keyboard.permission.INTERNAL"
+internal val INTERNAL_BROADCAST_PERMISSION = "${BuildConfig.APPLICATION_ID}.permission.INTERNAL"
 
 /** A short-lived activity is required because an InputMethodService cannot show runtime prompts. */
 class PermissionActivity : Activity() {

@@ -12,19 +12,32 @@ val localProperties = Properties().apply {
 }
 val apiBaseUrl = localProperties.getProperty("AYLOO_API_BASE_URL", "")
 val testerToken = localProperties.getProperty("AYLOO_TESTER_TOKEN", "")
+val applicationIdOverride = localProperties.getProperty("AYLOO_APPLICATION_ID", "com.ayloo.keyboard")
+val signingStorePath = System.getenv("AYLOO_SIGNING_STORE_FILE")?.trim().orEmpty()
 
 android {
     namespace = "com.ayloo.keyboard"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.ayloo.keyboard"
+        applicationId = applicationIdOverride
         minSdk = 26
         targetSdk = 35
         versionCode = 13
         versionName = "0.6.0-beta"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "TESTER_TOKEN", "\"$testerToken\"")
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            if (signingStorePath.isNotEmpty()) {
+                storeFile = rootProject.file(signingStorePath)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
     }
 
     buildFeatures { compose = true; buildConfig = true }
